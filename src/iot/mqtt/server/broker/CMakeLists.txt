@@ -52,6 +52,8 @@ add_library(
 )
 add_library(snodec::mqtt-broker ALIAS mqtt-broker)
 
+target_link_libraries(mqtt-broker PRIVATE logger)
+
 set_property(TARGET mqtt-broker PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(

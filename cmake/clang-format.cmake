@@ -77,12 +77,6 @@ if(CLANG_FORMAT)
         COMMENT "Auto formatting of all source files"
     )
 else(CLANG_FORMAT)
-    message(
-        WARNING
-            " clang-format not found:\n"
-            "    clang-format is used to format all source files consistently.\n"
-            "    It is highly recommented to install it, if you intend to modify the code of SNode.C.\n"
-            "    In case you have it installed run \"cmake --target format\" to format all source files.\n"
-            "    If you do not want to contribute to SNode.C, you can ignore this warning.\n"
-    )
+    # Optional development tool - not needed for building
+    message(STATUS "clang-format not found (code formatting disabled)")
 endif(CLANG_FORMAT)

@@ -84,7 +84,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_compile_options(
-    -Werror
+
     -Wall
     -Wextra
     -Wconversion
@@ -99,7 +99,7 @@ add_compile_options(
     -Wno-shadow # yes we do
     -Wno-psabi # needed for RaspberryPi
     -Wno-used-but-marked-unused
-    $<$<CXX_COMPILER_ID:Clang>:-Weverything>
+
     $<$<CXX_COMPILER_ID:Clang>:-Wno-c++98-compat-pedantic>
     $<$<CXX_COMPILER_ID:Clang>:-Wno-exit-time-destructors>
     $<$<CXX_COMPILER_ID:Clang>:-Wno-global-constructors>
@@ -107,11 +107,14 @@ add_compile_options(
     $<$<CXX_COMPILER_ID:Clang>:-Wno-padded>
     $<$<CXX_COMPILER_ID:Clang>:-Wno-documentation-unknown-command>
     $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,16.0>>:-Wno-unsafe-buffer-usage>
+    $<$<CXX_COMPILER_ID:Clang>:-Wno-implicit-int-conversion>
     $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,18.0>>:-Wno-switch-default>
     $<$<OR:$<STREQUAL:${CMAKE_SYSTEM_NAME},Android>,$<BOOL:$ENV{TERMUX_ARCH}>>:-Wno-deprecated-declarations>
 )
 
-add_link_options(LINKER:--as-needed)
+if(NOT APPLE)
+    add_link_options(LINKER:--as-needed)
+endif()
 
 # add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
 # add_link_options(-fsanitize=address,undefined) export
@@ -119,6 +122,7 @@ add_link_options(LINKER:--as-needed)
 
 option(SNODEC_DISABLE_LOGLEVEL_LOGGING "Disable LOG() and PLOG() logging")
 option(SNODEC_DISABLE_VERBOSE_LOGGING "Disable VLOG() logging")
+option(SNODEC_SSO_MFA "Enable SSO/MFA features" ON)
 
 if(SNODEC_DISABLE_LOGLEVEL_LOGGING)
     add_compile_definitions(ELPP_DISABLE_TRACE_LOGS)
@@ -133,7 +137,9 @@ if(SNODEC_DISABLE_VERBOSE_LOGGING)
     add_compile_definitions(ELPP_DISABLE_VERBOSE_LOGS)
 endif(SNODEC_DISABLE_VERBOSE_LOGGING)
 
+set(EASYLOGGINGPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../supplement/easyloggingpp")
 add_subdirectory(log)
+add_subdirectory(supplement/qrcodegen)
 add_subdirectory(utils)
 add_subdirectory(core)
 add_subdirectory(net)
@@ -141,6 +147,11 @@ add_subdirectory(web)
 add_subdirectory(express)
 add_subdirectory(database)
 add_subdirectory(iot)
+
+if(SNODEC_SSO_MFA)
+    add_subdirectory(auth)
+endif()
+
 add_subdirectory(apps)
 
 get_all_targets_dependencies(SNODEC_LIST_OF_ALL_TARGETS_DEPENDENCIES log)

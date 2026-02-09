@@ -59,7 +59,10 @@ namespace utils::system {
     std::string sigabbrev_np(int sig) {
         static std::map<int, std::string> sigMap = {
             {SIGABRT, "ABRT"}, {SIGALRM, "ALRM"},     {SIGBUS, "BUS"},   {SIGCHLD, "CHLD"}, {SIGCONT, "CONT"},  {SIGFPE, "FPE"},
-            {SIGHUP, "HUP"},   {SIGILL, "ILL"},       {SIGINT, "INT"},   {SIGKILL, "KILL"}, {SIGPIPE, "PIPE"},  {SIGPOLL, "POLL"},
+            {SIGHUP, "HUP"},   {SIGILL, "ILL"},       {SIGINT, "INT"},   {SIGKILL, "KILL"}, {SIGPIPE, "PIPE"},
+#ifdef SIGPOLL
+            {SIGPOLL, "POLL"},
+#endif
             {SIGPROF, "PROF"}, {SIGQUIT, "QUIT"},     {SIGSEGV, "SEGV"}, {SIGSTOP, "STOP"}, {SIGSYS, "SYS"},    {SIGTERM, "TERM"},
             {SIGTRAP, "TRAP"}, {SIGTSTP, "TSTP"},     {SIGTTIN, "TTIN"}, {SIGTTOU, "TTOU"}, {SIGUSR1, "USR1"},  {SIGUSR2, "USR2"},
             {SIGURG, "URG"},   {SIGVTALRM, "VTALRM"}, {SIGXCPU, "XCPU"}, {SIGXFSZ, "XFSZ"}, {SIGWINCH, "WINCH"}};

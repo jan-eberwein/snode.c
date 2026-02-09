@@ -63,13 +63,17 @@ namespace net::phy {
         : Descriptor(fd)
         , bindAddress(bindAddress) {
         typename SocketAddress::SockLen optLen = sizeof(domain);
+#ifdef SO_DOMAIN
         getSockopt(SOL_SOCKET, SO_DOMAIN, &domain, &optLen);
+#endif
 
         optLen = sizeof(type);
         getSockopt(SOL_SOCKET, SO_TYPE, &type, &optLen);
 
         optLen = sizeof(protocol);
+#ifdef SO_PROTOCOL
         getSockopt(SOL_SOCKET, SO_PROTOCOL, &protocol, &optLen);
+#endif
     }
 
     template <typename SocketAddress>
@@ -78,7 +82,26 @@ namespace net::phy {
 
     template <typename SocketAddress>
     int PhysicalSocket<SocketAddress>::open(const std::map<int, std::map<int, PhysicalSocketOption>>& socketOptionsMapMap, Flags flags) {
+#if defined(__APPLE__) || defined(__MACH__)
+        // macOS doesn't support SOCK_NONBLOCK/SOCK_CLOEXEC in socket() type arg
+        int typeForSocket = type;
+        // Mask out the flags we know correspond to mapped O_NONBLOCK/O_CLOEXEC if passed in type or flags
+        // However, 'type' is usually just SOCK_STREAM etc. 'flags' carries the extras.
+        // But let's be safe and mask them out from the call.
+        // Since we are in template, we rely on macros.
+        int ret = Super::operator=(core::system::socket(domain, typeForSocket, protocol)).getFd();
+        if (ret >= 0) {
+            if (flags & SOCK_NONBLOCK) {
+                int f = fcntl(ret, F_GETFL, 0);
+                fcntl(ret, F_SETFL, f | O_NONBLOCK);
+            }
+            if (flags & SOCK_CLOEXEC) {
+                fcntl(ret, F_SETFD, FD_CLOEXEC);
+            }
+        }
+#else
         int ret = Super::operator=(core::system::socket(domain, type | flags, protocol)).getFd();
+#endif
 
         if (ret >= 0) {
             for (const auto& [optLevel, socketOptionsMap] : socketOptionsMapMap) {

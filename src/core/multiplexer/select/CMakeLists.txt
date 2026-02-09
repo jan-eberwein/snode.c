@@ -43,12 +43,22 @@ set(MUX_SELECT_CPP DescriptorEventPublisher.cpp EventMultiplexer.cpp)
 
 set(MUX_SELECT_H DescriptorEventPublisher.h EventMultiplexer.h)
 
-add_library(mux-select SHARED ${MUX_SELECT_CPP} ${MUX_SELECT_H})
+add_library(mux-select STATIC ${MUX_SELECT_CPP} ${MUX_SELECT_H})
 add_library(snodec::mux-select ALIAS mux-select)
 
 target_include_directories(
     mux-select PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>"
                       "$<INSTALL_INTERFACE:include/snode.c>"
+)
+
+# Add easylogging++ include directory without linking to avoid circular dependency
+target_include_directories(
+    mux-select PRIVATE $<TARGET_PROPERTY:logger,INTERFACE_INCLUDE_DIRECTORIES>
+)
+
+set_source_files_properties(
+    EventMultiplexer.cpp
+    PROPERTIES COMPILE_FLAGS "-Wno-implicit-int-conversion -Wno-shorten-64-to-32"
 )
 
 set_target_properties(

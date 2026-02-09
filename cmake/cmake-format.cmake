@@ -52,12 +52,6 @@ if(CMAKE_FORMAT)
         COMMENT "Auto formatting of all CMakeLists.txt files"
     )
 else(CMAKE_FORMAT)
-    message(
-        WARNING
-            " cmake-format not found:\n"
-            "    cmake-format is used to format all CMakeLists.txt files consitently.\n"
-            "    It is highly recommented to install it, if you intend to modify the code of SNode.C.\n"
-            "    In case you have it installed run \"cmake --target format\" to format all CMakeLists.txt files.\n"
-            "    If you do not want to contribute to SNode.C, you can ignore this warning.\n"
-    )
+    # Optional development tool - not needed for building
+    message(STATUS "cmake-format not found (CMake formatting disabled)")
 endif(CMAKE_FORMAT)

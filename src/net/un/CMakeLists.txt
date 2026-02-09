@@ -46,7 +46,7 @@ set(NET-UN_H SocketAddress.h config/ConfigAddress.h)
 add_library(net-un SHARED ${NET-UN_CPP} ${NET-UN_H})
 add_library(snodec::net-un ALIAS net-un)
 
-target_link_libraries(net-un PUBLIC net)
+target_link_libraries(net-un PUBLIC net core core-socket)
 
 target_include_directories(
     net-un PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>"

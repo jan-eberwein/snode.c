@@ -41,6 +41,10 @@
 
 #include "core/multiplexer/poll/EventMultiplexer.h"
 
+#ifndef POLLRDHUP
+#define POLLRDHUP 0
+#endif
+
 #include "core/DescriptorEventReceiver.h"
 #include "core/multiplexer/poll/DescriptorEventPublisher.h"
 

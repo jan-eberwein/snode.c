@@ -83,12 +83,6 @@ if(DOXYGEN_FOUND)
         )
     endif(BUILD_DOCUMENTATION)
 else(DOXYGEN_FOUND)
-    message(
-        WARNING
-            " Docygen not found:\n"
-            "    Doxygen is used to build the documentation of snode.c in html format.\n"
-            "    If you do not intend to build the documentation you can ignore this warning\n"
-            "    Otherwise,  you can install doxygen on an debian-style system by executing\n"
-            "       sudo apt install doxygen"
-    )
+    # Optional documentation tool - not needed for building
+    message(STATUS "Doxygen not found (documentation generation disabled)")
 endif(DOXYGEN_FOUND)

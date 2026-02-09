@@ -45,6 +45,16 @@
 #include "core/Descriptor.h"              // IWYU pragma: export
 #include "net/phy/PhysicalSocketOption.h" // IWYU pragma: export
 
+#include <fcntl.h>
+
+#ifndef SOCK_NONBLOCK
+#define SOCK_NONBLOCK O_NONBLOCK
+#endif
+
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC O_CLOEXEC
+#endif
+
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include "core/system/socket.h" // IWYU pragma: export

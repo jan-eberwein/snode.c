@@ -96,9 +96,11 @@ if(BLUEZ_FOUND)
     add_subdirectory(stream)
 
 else(BLUEZ_FOUND)
-    message(
-        WARNING
-            " libbluetooth-dev not found:\n"
-            "    If you want to get bluetooth support you should install libbluetooth-dev."
-    )
+    # Bluetooth not available on macOS - this is expected
+    if(NOT APPLE)
+        message(
+            STATUS
+                " libbluetooth-dev not found (Bluetooth support disabled)"
+        )
+    endif()
 endif(BLUEZ_FOUND)

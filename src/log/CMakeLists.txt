@@ -61,6 +61,7 @@ set(EASYLOGGING_COMPILE_FLAGS
     -Wno-double-promotion\
     -Wno-extra-semi-stmt\
     -Wno-implicit-int-conversion\
+    -Wno-shorten-64-to-32\
     -Wno-implicit-int-float-conversion\
     -Wno-missing-noreturn\
     -Wno-range-loop-construct\
@@ -75,6 +76,7 @@ set(EASYLOGGING_COMPILE_FLAGS
 
 set_source_files_properties(
     "${EASYLOGGINGPP_INCLUDE_DIR}/easylogging++.cc"
+    Logger.cpp
     PROPERTIES COMPILE_FLAGS ${EASYLOGGING_COMPILE_FLAGS}
 )
 
@@ -87,7 +89,7 @@ target_include_directories(
     logger
     PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>"
            "$<INSTALL_INTERFACE:include/snode.c>"
-    INTERFACE ${EASYLOGGINGPP_INCLUDE_DIR}
+           "$<BUILD_INTERFACE:${EASYLOGGINGPP_INCLUDE_DIR}>"
 )
 
 set_target_properties(

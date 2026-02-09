@@ -122,7 +122,7 @@ namespace net::un::dgram {
 
             if ((cmptr = CMSG_FIRSTHDR(&msg)) != nullptr && cmptr->cmsg_len == CMSG_LEN(sizeof(int))) {
                 if (cmptr->cmsg_level != SOL_SOCKET || cmptr->cmsg_type != SCM_RIGHTS) {
-                    errno = EBADE;
+                    errno = EINVAL;
                     *recvfd = -1;
                     n = -1;
                 } else {

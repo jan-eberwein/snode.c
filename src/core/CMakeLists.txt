@@ -41,7 +41,11 @@ cmake_minimum_required(VERSION 3.18)
 
 set(IO_MULTIPLEXERS "epoll;poll;select")
 if("${IO_MULTIPLEXER}" STREQUAL "")
-    list(SUBLIST IO_MULTIPLEXERS 0 1 IO_MULTIPLEXER)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(SUBLIST IO_MULTIPLEXERS 0 1 IO_MULTIPLEXER)
+    else()
+        set(IO_MULTIPLEXER "select")
+    endif()
 endif("${IO_MULTIPLEXER}" STREQUAL "")
 set(SNODEC_IO_MULTIPLEXER
     ${IO_MULTIPLEXER}
@@ -79,9 +83,7 @@ set(CORE_CPP
     pipe/PipeSink.cpp
     pipe/PipeSource.cpp
     system/dlfcn.cpp
-    system/epoll.cpp
     system/netdb.cpp
-    system/poll.cpp
     system/select.cpp
     system/socket.cpp
     system/unistd.cpp
@@ -119,9 +121,7 @@ set(CORE_H
     pipe/PipeSink.h
     pipe/PipeSource.h
     system/dlfcn.h
-    system/epoll.h
     system/netdb.h
-    system/poll.h
     system/select.h
     system/socket.h
     system/unistd.h
@@ -130,6 +130,16 @@ set(CORE_H
     timer/SingleshotTimer.h
     timer/Timer.h
 )
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND CORE_CPP system/epoll.cpp)
+    list(APPEND CORE_H system/epoll.h)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND CORE_CPP system/poll.cpp)
+    list(APPEND CORE_H system/poll.h)
+endif()
 
 set_source_files_properties(
     EventLoop.cpp

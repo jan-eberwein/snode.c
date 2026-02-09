@@ -158,7 +158,7 @@ namespace httputils {
         struct tm tm{};
 
         strptime(http_date.c_str(), "%a, %d %b %Y %H:%M:%S", &tm);
-        tm.tm_zone = "GMT";
+        tm.tm_zone = (char*) "GMT";
 
         return tm;
     }

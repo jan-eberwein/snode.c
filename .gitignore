@@ -13,3 +13,8 @@
 /softwipe_build/
 /test1-cppcheck-build-dir/
 /test1.cppcheck
+
+build_debug/
+build_test/
+build_verify/
+build/

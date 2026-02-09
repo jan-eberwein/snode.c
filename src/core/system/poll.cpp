@@ -39,7 +39,12 @@
  * THE SOFTWARE.
  */
 
+#define _DARWIN_C_SOURCE
 #include "core/system/poll.h"
+
+#include <csignal>
+#include <ctime>
+#include <sys/poll.h>
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -58,7 +63,22 @@ namespace core::system {
 
     int ppoll(struct pollfd* fds, nfds_t nfds, const timespec* timeout, const sigset_t* sigMask) {
         errno = 0;
+#if defined(__APPLE__)
+        int timeout_ms = -1;
+        if (timeout) {
+            timeout_ms = timeout->tv_sec * 1000 + timeout->tv_nsec / 1000000;
+        }
+        if (sigMask) {
+            sigset_t oldMask;
+            pthread_sigmask(SIG_SETMASK, sigMask, &oldMask);
+            int ret = ::poll(fds, nfds, timeout_ms);
+            pthread_sigmask(SIG_SETMASK, &oldMask, nullptr);
+            return ret;
+        }
+        return ::poll(fds, nfds, timeout_ms);
+#else
         return ::ppoll(fds, nfds, timeout, sigMask);
+#endif
     }
 
 } // namespace core::system

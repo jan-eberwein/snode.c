@@ -46,9 +46,16 @@ set(MUX_POLL_H DescriptorEventPublisher.h EventMultiplexer.h)
 add_library(mux-poll SHARED ${MUX_POLL_CPP} ${MUX_POLL_H})
 add_library(snodec::mux-poll ALIAS mux-poll)
 
+target_link_libraries(mux-poll PRIVATE core logger)
+
 target_include_directories(
     mux-poll PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>"
                     "$<INSTALL_INTERFACE:include/snode.c>"
+)
+
+# Add easylogging++ include directory without linking to avoid circular dependency
+target_include_directories(
+    mux-poll PRIVATE $<TARGET_PROPERTY:logger,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 set_target_properties(

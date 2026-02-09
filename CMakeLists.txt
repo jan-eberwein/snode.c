@@ -44,6 +44,9 @@ project(
     DESCRIPTION "Simple Node in C++, a Slim Network Framework"
     VERSION 1.0.1
 )
+
+option(SNODEC_SSO_MFA "Enable SSO and MFA components" ON)
+
 set(SNODEC_SOVERSION ${SNode.C_VERSION_MAJOR})
 
 set(ignoreMe ${CMAKE_VERBOSE_MAKEFILE})

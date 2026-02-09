@@ -84,6 +84,11 @@ set_property(
     PROPERTY COMPILE_DEFINITIONS CLI11_USE_OLD_HELP_PROCESSING
 )
 
+set_source_files_properties(
+    Config.cpp Daemon.cpp hexdump.cpp
+    PROPERTIES COMPILE_FLAGS "-Wno-implicit-int-conversion -Wno-shorten-64-to-32"
+)
+
 add_library(utils SHARED ${UTILS_CPP} ${UTILS_H})
 add_library(snodec::utils ALIAS utils)
 

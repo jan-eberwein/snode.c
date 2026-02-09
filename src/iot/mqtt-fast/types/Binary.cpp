@@ -43,7 +43,20 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#if defined(__APPLE__)
+#include <arpa/inet.h>
+#include <libkern/OSByteOrder.h>
+#define htobe16(x) htons(x)
+#define be16toh(x) ntohs(x)
+#define htobe32(x) htonl(x)
+#define be32toh(x) ntohl(x)
+#define htobe64(x) OSSwapHostToBigInt64(x)
+#define be64toh(x) OSSwapBigToHostInt64(x)
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+#include <sys/endian.h>
+#else
 #include <endian.h>
+#endif
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 

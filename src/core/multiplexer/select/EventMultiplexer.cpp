@@ -73,12 +73,22 @@ namespace core::multiplexer::select {
     int EventMultiplexer::monitorDescriptors(utils::Timeval& tickTimeOut, const sigset_t& sigMask) {
         const timespec timeSpec = tickTimeOut.getTimespec();
 
-        return core::system::pselect(maxFd() + 1,
-                                     &fdSets[core::EventMultiplexer::DISP_TYPE::RD].get(),
-                                     &fdSets[core::EventMultiplexer::DISP_TYPE::WR].get(),
-                                     &fdSets[core::EventMultiplexer::DISP_TYPE::EX].get(),
-                                     &timeSpec,
-                                     &sigMask);
+        struct timeval tv = *(&tickTimeOut);
+        int nfds = maxFd() + 1;
+        struct timeval* ptv = &tv;
+
+        // macOS select returns EINVAL for very large timeouts (e.g. INT64_MAX)
+        // We treat > 100,000,000 seconds as infinite -> nullptr
+        if (tv.tv_sec > 100000000) {
+            ptv = nullptr;
+        }
+
+        std::cerr << "Select: nfds=" << nfds << " tv=" << tv.tv_sec << " ptv=" << ptv << std::endl;
+        return core::system::select(nfds,
+                                    &fdSets[core::EventMultiplexer::DISP_TYPE::RD].get(),
+                                    &fdSets[core::EventMultiplexer::DISP_TYPE::WR].get(),
+                                    &fdSets[core::EventMultiplexer::DISP_TYPE::EX].get(),
+                                    ptv);
     }
 
     void EventMultiplexer::spanActiveEvents(int activeDescriptorCount) {

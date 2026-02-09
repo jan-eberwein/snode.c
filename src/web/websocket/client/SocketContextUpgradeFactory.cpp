@@ -49,9 +49,10 @@
 
 #include "utils/base64.h"
 
+#include <sys/random.h>
 #include <unistd.h>
 
-#if !defined(HAVE_GETENTROPY)
+#if !defined(HAVE_GETENTROPY) || defined(__APPLE__)
 #include <cstddef>
 #include <sys/types.h>
 #if defined(SYS_GETRANDOM)
@@ -65,7 +66,7 @@
 
 namespace web::websocket::client {
 
-#if !defined(HAVE_GETENTROPY)
+#if !defined(HAVE_GETENTROPY) || defined(__APPLE__)
     int getentropy(void* buf, size_t buflen);
     int getentropy(void* buf, size_t buflen) {
 #ifdef SYS_GETRANDOM

@@ -169,15 +169,24 @@ namespace utils {
         pidFile >> pid;
         pidFile.close();
 
+#ifdef SYS_pidfd_open
         const int pidfd = static_cast<int>(syscall(SYS_pidfd_open, pid, 0)); // NOLINT
 
         if (pidfd == -1) {
             erasePidFile(pidFileName);
             throw DaemonFailure("Daemon not running");
         }
+#else
+        // macOS: SYS_pidfd_open not available, use kill with signal 0 to check if process exists
+        if (kill(pid, 0) != 0) {
+            erasePidFile(pidFileName);
+            throw DaemonFailure("Daemon not running");
+        }
+#endif
         if (kill(pid, SIGTERM) != 0) {
             throw DaemonError("kill()");
         }
+#ifdef SYS_pidfd_open
         struct pollfd pollfd{};
         pollfd.fd = pidfd;
         pollfd.events = POLLIN;
@@ -193,6 +202,16 @@ namespace utils {
             erasePidFile(pidFileName);
             throw DaemonFailure("Daemon not responding - killed");
         }
+#else
+        // macOS: Wait for process to terminate (simplified, no pidfd available)
+        sleep(1); // Give process time to terminate
+        if (kill(pid, 0) == 0) {
+            // Process still running, kill it
+            kill(pid, SIGKILL);
+            erasePidFile(pidFileName);
+            throw DaemonFailure("Daemon not responding - killed");
+        }
+#endif
 
         return pid;
     }

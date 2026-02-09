@@ -75,6 +75,10 @@ namespace database::mariadb {
         mysql = mysql_init(nullptr);
         mysql_options(mysql, MYSQL_OPT_NONBLOCK, nullptr);
 
+        // Enable automatic reconnection for dropped connections
+        bool reconnect = true;
+        mysql_options(mysql, MYSQL_OPT_RECONNECT, &reconnect);
+
         execute_async(std::move(MariaDBCommandSequence().execute_async(new database::mariadb::commands::async::MariaDBConnectCommand(
             connectionDetails,
             [this]() {

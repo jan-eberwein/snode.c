@@ -55,7 +55,7 @@ append_source_file_config(
 add_library(net-in SHARED ${NET-IN_CPP} ${NET-IN_H})
 add_library(snodec::net-in ALIAS net-in)
 
-target_link_libraries(net-in PUBLIC net)
+target_link_libraries(net-in PUBLIC net core-socket)
 
 target_include_directories(
     net-in PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>"

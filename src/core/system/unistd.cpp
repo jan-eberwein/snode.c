@@ -69,9 +69,29 @@ namespace core::system {
         return ::close(fd);
     }
 
+#include <fcntl.h>
+#include <unistd.h>
+
     int pipe2(int pipefd[2], int flags) {
         errno = 0;
+#if defined(__linux__)
         return ::pipe2(pipefd, flags);
+#else
+        int ret = ::pipe(pipefd);
+        if (ret == 0) {
+            if (flags & O_CLOEXEC) {
+                fcntl(pipefd[0], F_SETFD, FD_CLOEXEC);
+                fcntl(pipefd[1], F_SETFD, FD_CLOEXEC);
+            }
+            if (flags & O_NONBLOCK) {
+                int f = fcntl(pipefd[0], F_GETFL);
+                fcntl(pipefd[0], F_SETFL, f | O_NONBLOCK);
+                f = fcntl(pipefd[1], F_GETFL);
+                fcntl(pipefd[1], F_SETFL, f | O_NONBLOCK);
+            }
+        }
+        return ret;
+#endif
     }
 
     int flock(int lockFd, int operation) {

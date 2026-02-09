@@ -53,6 +53,12 @@
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
+// macOS compatibility: sighandler_t is a GNU extension
+#ifndef _SIGHANDLER_T
+#define _SIGHANDLER_T
+typedef void (*sighandler_t)(int);
+#endif
+
 namespace utils::system {
 
     sighandler_t signal(int sig, sighandler_t handler);
