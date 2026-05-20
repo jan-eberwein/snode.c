@@ -43,11 +43,6 @@ namespace snodec {
                 result += base32Alphabet[index];
             }
 
-            // Add padding
-            while (result.length() % 8 != 0) {
-                result += '=';
-            }
-
             return result;
         }
 
@@ -149,8 +144,11 @@ namespace snodec {
         }
 
         std::string Totp::generateOtpAuthUri(const std::string& base32Secret, const std::string& username, const std::string& issuer) {
+            std::string cleanSecret = base32Secret;
+            cleanSecret.erase(std::remove(cleanSecret.begin(), cleanSecret.end(), '='), cleanSecret.end());
+            
             std::ostringstream uri;
-            uri << "otpauth://totp/" << issuer << ":" << username << "?secret=" << base32Secret << "&issuer=" << issuer << "&algorithm=SHA1"
+            uri << "otpauth://totp/" << issuer << ":" << username << "?secret=" << cleanSecret << "&issuer=" << issuer << "&algorithm=SHA1"
                 << "&digits=6"
                 << "&period=30";
             return uri.str();

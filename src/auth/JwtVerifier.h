@@ -17,6 +17,7 @@ namespace snodec {
             std::chrono::system_clock::time_point expiresAt;
             std::string issuer;
             std::string audience;
+            bool mfaVerified = false;
         };
 
         class JwtVerifier {

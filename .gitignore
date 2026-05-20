@@ -1,20 +1,64 @@
+# ── Build directories ──────────────────────────────────────────────
 /build/
+build/
+build_debug/
+build_test/
+build_verify/
+build-openwrt/
+openwrt-sdk-*
+router_build_output/
+CMakeFiles/
+
+# ── IDE / Editor ───────────────────────────────────────────────────
 *.kdev4
-/sites/
+*.txt.user
+/.vscode/
+/.cache/
+
+# ── Tags / Index ───────────────────────────────────────────────────
 /GPATH
 /GRTAGS
 /GTAGS
-*.txt.user
-/doc/xml/
-/.vscode
-/README.md
-/.vscode/
-/.cache/
+
+# ── Analysis / QA ──────────────────────────────────────────────────
 /softwipe_build/
 /test1-cppcheck-build-dir/
 /test1.cppcheck
 
-build_debug/
-build_test/
-build_verify/
-build/
+# ── Documentation build ────────────────────────────────────────────
+/doc/xml/
+/sites/
+
+# ── Auth & SSO specific ───────────────────────────────────────────
+# Database files (regenerated at runtime)
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+
+# Secrets / environment
+.env
+
+# Seed scripts (contain test credentials)
+seed_user*.py
+
+# ── Temporary / scratch files ──────────────────────────────────────
+a.out
+scratch.cpp
+plan_helper.txt
+qr_test_output.png
+
+# ── Large archives (must not be in repo) ───────────────────────────
+*.zip
+
+# ── Build logs (generated during compilation) ─────────────────────
+full_build_v*.log
+
+# ── TOTP encryption key (sensitive — generated at runtime) ────────
+totp.key
+/etc/snodec/
+
+# ── macOS artifacts ───────────────────────────────────────────────
+.DS_Store

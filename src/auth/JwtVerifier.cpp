@@ -112,7 +112,15 @@ namespace snodec {
             std::string payloadB64 = token.substr(firstDot + 1, secondDot - firstDot - 1);
             std::string signatureB64 = token.substr(secondDot + 1);
 
-            // 2. Verify Signature
+            // 2. Verify header algorithm (prevent algorithm confusion attacks, RFC 7515)
+            std::string headerJson = base64UrlDecode(headerB64);
+            std::string alg = getJsonString(headerJson, "alg");
+            if (alg != "RS256") {
+                error = "Unsupported algorithm: " + alg + " (expected RS256)";
+                return false;
+            }
+
+            // 3. Verify Signature
             std::string signedData = token.substr(0, secondDot);
             std::string signature = base64UrlDecode(signatureB64);
 
@@ -190,6 +198,23 @@ namespace snodec {
                 return false;
             }
 
+            // 5b. Validate not-before (nbf) if present
+            std::string nbfStr = getJsonString(payloadJson, "nbf");
+            if (!nbfStr.empty()) {
+                long long nbf = 0;
+                try {
+                    nbf = std::stoll(nbfStr);
+                } catch (...) {
+                    error = "Invalid nbf claim";
+                    return false;
+                }
+                auto nbfTime = std::chrono::system_clock::from_time_t(nbf);
+                if (now < nbfTime) {
+                    error = "Token not yet valid (nbf)";
+                    return false;
+                }
+            }
+
             // 5. Fill outClaims
             outClaims.issuer = iss;
             outClaims.audience = aud;
@@ -199,6 +224,8 @@ namespace snodec {
             if (outClaims.username.empty()) {
                 outClaims.username = getJsonString(payloadJson, "preferred_username");
             }
+            std::string mfaVer = getJsonString(payloadJson, "mfa_verified");
+            outClaims.mfaVerified = (mfaVer == "true");
             outClaims.scopes = getJsonStringArray(payloadJson, "scope"); // or scopes
             if (outClaims.scopes.empty()) {
                 // Try space-separated string if array failed or empty

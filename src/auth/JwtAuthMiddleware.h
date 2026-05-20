@@ -57,10 +57,13 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <iostream>
 #include <openssl/sha.h>
 #include <random>
 #include <sstream>
 #include <string>
+
+#include "log/Logger.h"
 
 namespace snodec {
     namespace auth {
@@ -113,11 +116,15 @@ namespace snodec {
 
                 // Middleware function - integrate with SNode.C Express Router
                 template <typename Request, typename Response, typename Next>
-                void operator()(Request& req, Response& res, Next next) {
+                void operator()(Request& req, Response& res, Next& next) {
                     std::string token = extractToken(req);
+
+                    VLOG(2) << "[JwtAuthMiddleware] Token extracted: "
+                              << (token.empty() ? "EMPTY" : "present (" + std::to_string(token.length()) + " chars)");
 
                     if (token.empty()) {
                         // No token - redirect to IdP for OAuth2 login
+                        VLOG(2) << "[JwtAuthMiddleware] No token found, redirecting to IdP";
                         redirectToIdp(req, res);
                         return;
                     }
@@ -127,14 +134,18 @@ namespace snodec {
 
                     if (!verifier_.verify(token, claims, error)) {
                         // Invalid or expired token - clear cookie and redirect
+                        VLOG(2) << "[JwtAuthMiddleware] Token verification FAILED: " << error;
                         res->set("Set-Cookie", cookieName_ + "=; Path=/; Max-Age=0; HttpOnly");
                         redirectToIdp(req, res);
                         return;
                     }
 
+                    VLOG(2) << "[JwtAuthMiddleware] Token verified for user: " << claims.username;
+
                     // Token valid - store claims in request for downstream handlers
                     req->template setAttribute<std::string>(claims.subject, "X-User-Id");
                     req->template setAttribute<std::string>(claims.username, "X-Username");
+                    req->template setAttribute<bool>(claims.mfaVerified, "X-MfaVerified");
 
                     // Continue to next middleware/handler
                     next();
@@ -157,8 +168,16 @@ namespace snodec {
                     }
 
                     // Fall back to cookie (browser clients)
+                    // Use SNode.C's built-in cookie() method which handles parsing
+                    std::string cookieValue = req->cookie(cookieName_);
+                    if (!cookieValue.empty()) {
+                        return cookieValue;
+                    }
+
+                    // Also try manually parsing if cookie() doesn't work
                     std::string cookieHeader = req->get("Cookie");
                     if (!cookieHeader.empty()) {
+                        VLOG(2) << "[JwtAuthMiddleware] Cookie header: " << cookieHeader;
                         return extractCookieValue(cookieHeader, cookieName_);
                     }
 

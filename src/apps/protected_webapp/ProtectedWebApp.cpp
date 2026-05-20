@@ -1,3 +1,11 @@
+/*
+ * SNode.C - A Slim Toolkit for Network Communication
+ * Protected Web App — SSO/MFA Demo
+ *
+ * Demonstrates OAuth2 Authorization Code + PKCE flow against the SNode.C IdP.
+ * Auto-redirects unauthenticated users to the IdP; Single Logout chains back.
+ */
+
 #include "auth/JwtAuthMiddleware.h"
 #include "auth/OAuth2CallbackHandler.h"
 #include "core/SNodeC.h"
@@ -6,35 +14,43 @@
 
 #include <fstream>
 #include <iostream>
+#include <openssl/sha.h>
+#include <random>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace snodec;
 using namespace snodec::auth::middleware;
 using namespace snodec::auth::callback;
 
-// Configuration
 constexpr int APP_PORT = 8055;
 constexpr int IDP_PORT = 8083;
+
+static std::string loadPubKeyFile(const std::string& path) {
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        throw std::runtime_error("Cannot open: " + path);
+    }
+    return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+}
 
 int main(int argc, char* argv[]) {
     core::SNodeC::init(argc, argv);
     express::legacy::in::WebApp app("SSO-MFA-Test");
 
-    // Load public key for JWT verification
+    // ── Load public key ──────────────────────────────────────────────────────
     std::string publicKey;
-    try {
-        // Try multiple paths for public key
+    {
         std::vector<std::string> keyPaths = {
-            "keys/public_key.pem",                   // Local (production/build)
-            "src/apps/auth_idp/keys/public_key.pem", // Development (from project root)
-            "../auth_idp/keys/public_key.pem"        // Development (relative sibling)
+            "keys/public_key.pem",
+            "src/apps/auth_idp/keys/public_key.pem",
+            "../auth_idp/keys/public_key.pem",
         };
-
         bool loaded = false;
         for (const auto& path : keyPaths) {
             try {
-                publicKey = loadPublicKey(path);
+                publicKey = loadPubKeyFile(path);
                 VLOG(0) << "Loaded public key from: " << path;
                 loaded = true;
                 break;
@@ -42,407 +58,334 @@ int main(int argc, char* argv[]) {
                 continue;
             }
         }
-
         if (!loaded) {
-            throw std::runtime_error("Failed to load public key from any configured path");
+            LOG(ERROR) << "Failed to load public key from any configured path";
+            return 1;
         }
-    } catch (const std::exception& e) {
-        LOG(ERROR) << "Failed to load public key: " << e.what();
-        return 1;
     }
 
-    // JWT Auth Middleware
-    JwtAuthMiddleware authMiddleware("https://idp.snodec.local", "snodec-webapp", publicKey);
-    authMiddleware.setIdpBaseUrl("http://localhost:" + std::to_string(IDP_PORT));
-    authMiddleware.setClientId("snodec-webapp");
+    // ── Configuration ─────────────────────────────────────────────────────────
+    auto getEnv = [](const char* name, const std::string& def) -> std::string {
+        const char* val = std::getenv(name);
+        return val ? std::string(val) : def;
+    };
+    std::string idpIssuer      = getEnv("IDP_ISSUER",    "https://idp.snodec.local");
+    std::string idpBaseUrl     = getEnv("IDP_BASE_URL",  "http://localhost:" + std::to_string(IDP_PORT));
+    std::string webappClientId = getEnv("WEBAPP_CLIENT_ID", "snodec-webapp");
+
+    // ── Middleware ─────────────────────────────────────────────────────────────
+    JwtAuthMiddleware authMiddleware(idpIssuer, webappClientId, publicKey);
+    authMiddleware.setIdpBaseUrl(idpBaseUrl);
+    authMiddleware.setClientId(webappClientId);
     authMiddleware.setCallbackPath("/auth/callback");
 
-    // OAuth2 Callback Handler
-    OAuth2CallbackHandler callbackHandler("http://localhost:" + std::to_string(IDP_PORT) + "/oauth2/token", "snodec-webapp");
+    OAuth2CallbackHandler callbackHandler(idpBaseUrl + "/oauth2/token", webappClientId);
+    snodec::auth::JwtVerifier jwtVerifier(idpIssuer, webappClientId, publicKey);
+
+    // ── Shared CSS (matches IdP dark/minimal design) ───────────────────────────
+    auto sharedCss = []() -> std::string {
+        return R"(
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;background:#0f1117;color:#e8e9ed;min-height:100vh}
+a{text-decoration:none;color:inherit}
+header{display:flex;align-items:center;justify-content:space-between;padding:0 32px;height:56px;
+  background:rgba(255,255,255,0.03);border-bottom:1px solid rgba(255,255,255,0.08);
+  position:sticky;top:0;z-index:100;backdrop-filter:blur(10px)}
+.header-logo{display:flex;align-items:center;gap:10px;font-size:1rem;font-weight:600;color:#e8e9ed}
+.header-logo svg{color:#3b82f6}
+.header-badge{font-size:0.7rem;padding:2px 8px;background:rgba(59,130,246,0.15);color:#3b82f6;
+  border:1px solid rgba(59,130,246,0.3);border-radius:20px;margin-left:6px}
+.header-nav{display:flex;align-items:center;gap:8px}
+.nav-user{display:flex;align-items:center;gap:8px;padding:5px 14px;
+  border:1.5px solid rgba(59,130,246,0.5);border-radius:20px;font-size:0.85rem;
+  font-weight:500;color:#3b82f6}
+.nav-btn{padding:7px 14px;border-radius:8px;font-size:0.85rem;font-weight:500;
+  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+  color:#e8e9ed;transition:.15s;cursor:pointer}
+.nav-btn:hover{background:rgba(255,255,255,0.1)}
+.nav-btn.danger{color:#f87171;border-color:rgba(239,68,68,0.25)}
+.nav-btn.danger:hover{background:rgba(239,68,68,0.1)}
+main{max-width:960px;margin:0 auto;padding:40px 24px}
+.page-title{font-size:1.5rem;font-weight:700;letter-spacing:-0.5px;margin-bottom:4px}
+.page-subtitle{color:#6b7280;font-size:0.9rem;margin-bottom:32px}
+.card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:24px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.tile{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px;padding:22px;transition:.2s}
+.tile:hover{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,0.14)}
+.tile-label{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin-bottom:8px}
+.tile-value{font-size:1.5rem;font-weight:700;letter-spacing:-0.5px}
+.tile-sub{font-size:0.8rem;color:#6b7280;margin-top:4px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.green{color:#4ade80}.green .dot,.dot-green{background:#22c55e}
+.info-row{display:flex;justify-content:space-between;align-items:center;
+  padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.06);font-size:0.9rem}
+.info-row:last-child{border:0}
+.info-label{color:#6b7280}
+.btn{display:inline-block;padding:10px 20px;border-radius:8px;font-size:0.9rem;
+  font-weight:500;cursor:pointer;border:none;transition:.15s;text-decoration:none}
+.btn-primary{background:#2563eb;color:#fff}.btn-primary:hover{background:#1d4ed8}
+.btn-secondary{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:#e8e9ed}
+.btn-secondary:hover{background:rgba(255,255,255,0.12)}
+.btn-danger{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:#f87171}
+.btn-danger:hover{background:rgba(239,68,68,0.18)}
+hr{border:0;border-top:1px solid rgba(255,255,255,0.07);margin:24px 0}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
+  border-top:1px solid rgba(255,255,255,0.06);margin-top:40px}
+        )";
+    };
+
+    // ── Page builder ─────────────────────────────────────────────────────────
+    auto buildPage = [&sharedCss](const std::string& title,
+                                   const std::string& body,
+                                   const std::string& username) -> std::string {
+        std::stringstream nav;
+        if (!username.empty()) {
+            nav << "<span class='nav-user'>"
+                << "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' "
+                << "stroke='currentColor' stroke-width='2'>"
+                << "<circle cx='12' cy='8' r='4'/>"
+                << "<path d='M4 20c0-4 3.6-7 8-7s8 3 8 7'/></svg> "
+                << username << "</span>"
+                << "<a href='/auth/logout' class='nav-btn danger'>Sign Out</a>";
+        }
+
+        std::stringstream html;
+        html << "<!DOCTYPE html><html lang='en'><head>"
+             << "<meta charset='UTF-8'>"
+             << "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+             << "<title>" << title << " — SNode.C</title>"
+             << "<link rel='preconnect' href='https://fonts.googleapis.com'>"
+             << "<style>" << sharedCss() << "</style>"
+             << "</head><body>"
+             << "<header>"
+             << "<a href='/' class='header-logo'>"
+             << "<svg width='22' height='22' viewBox='0 0 24 24' fill='none' "
+             << "stroke='currentColor' stroke-width='2'>"
+             << "<path d='M12 2L2 7l10 5 10-5-10-5M2 17l10 5 10-5M2 12l10 5 10-5'/>"
+             << "</svg>SNode.C <span class='header-badge'>Protected App</span>"
+             << "</a>"
+             << "<nav class='header-nav'>" << nav.str() << "</nav>"
+             << "</header>"
+             << "<main>" << body << "</main>"
+             << "<footer>SNode.C Protected Web App &nbsp;|&nbsp; "
+             << "SSO/MFA Demo &nbsp;|&nbsp; Master Thesis Jan Eberwein</footer>"
+             << "</body></html>";
+        return html.str();
+    };
+
+    // ── PKCE helper: generate verifier + challenge ────────────────────────────
+    auto generatePkce = [](std::string& verifier, std::string& challenge) {
+        static constexpr char CHARS[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(0, static_cast<int>(sizeof(CHARS)) - 2);
+        verifier.clear();
+        verifier.reserve(64);
+        for (int i = 0; i < 64; ++i) {
+            verifier += CHARS[dis(gen)];
+        }
+
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256(reinterpret_cast<const unsigned char*>(verifier.data()), verifier.size(), hash);
+
+        static constexpr char B64[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        challenge.clear();
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; i += 3) {
+            unsigned int b = (static_cast<unsigned int>(hash[i]) << 16)
+                | (i + 1 < SHA256_DIGEST_LENGTH
+                    ? static_cast<unsigned int>(hash[i + 1]) << 8 : 0U)
+                | (i + 2 < SHA256_DIGEST_LENGTH
+                    ? static_cast<unsigned int>(hash[i + 2]) : 0U);
+            int rem = SHA256_DIGEST_LENGTH - i;
+            challenge += B64[(b >> 18) & 0x3F];
+            challenge += B64[(b >> 12) & 0x3F];
+            if (rem > 1) { challenge += B64[(b >> 6) & 0x3F]; }
+            if (rem > 2) { challenge += B64[b        & 0x3F]; }
+        }
+        for (char& c : challenge) {
+            if (c == '+') { c = '-'; }
+            else if (c == '/') { c = '_'; }
+        }
+    };
 
     // ========== ROUTES ==========
 
-    // Main Page - Clean modern SSO/MFA Test UI
-    app.get("/", [] APPLICATION(req, res) {
-        // Check if user has valid token (cookie)
-        // Check if user has valid token (cookie)
+    // GET / — auto-redirect to SSO if no token, else show dashboard
+    app.get("/", [&buildPage, &jwtVerifier] APPLICATION(req, res) {
         std::string token = req->cookie("access_token");
-        bool isLoggedIn = !token.empty();
+        if (token.empty()) {
+            res->redirect("/login");
+            return;
+        }
 
-        std::stringstream html;
-        html << R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SSO - MFA - SNode.C TEST</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: #e8e8e8;
+        snodec::auth::JwtClaims claims;
+        std::string err;
+        bool mfaVerified = false;
+        if (jwtVerifier.verify(token, claims, err)) {
+            mfaVerified = claims.mfaVerified;
         }
-        .container {
-            background: rgba(255,255,255,0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 16px;
-            padding: 40px;
-            width: 100%;
-            max-width: 480px;
-            text-align: center;
-        }
-        h1 {
-            font-size: 1.8rem;
-            font-weight: 600;
-            margin-bottom: 8px;
-            letter-spacing: -0.5px;
-        }
-        .subtitle {
-            color: #888;
-            font-size: 0.9rem;
-            margin-bottom: 24px;
-        }
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            margin-bottom: 32px;
-        }
-        .status-badge.logged-out {
-            background: rgba(239,68,68,0.15);
-            color: #f87171;
-            border: 1px solid rgba(239,68,68,0.3);
-        }
-        .status-badge.logged-in {
-            background: rgba(34,197,94,0.15);
-            color: #4ade80;
-            border: 1px solid rgba(34,197,94,0.3);
-        }
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-        .logged-out .status-dot { background: #ef4444; }
-        .logged-in .status-dot { background: #22c55e; }
-        .divider {
-            height: 1px;
-            background: rgba(255,255,255,0.1);
-            margin: 24px 0;
-        }
-        .section-title {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: #666;
-            margin-bottom: 16px;
-        }
-        .btn {
-            display: block;
-            width: 100%;
-            padding: 14px 20px;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.95rem;
-            font-weight: 500;
-            cursor: pointer;
-            text-decoration: none;
-            margin-bottom: 12px;
-            transition: all 0.2s ease;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            color: white;
-        }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.4); }
-        .btn-secondary {
-            background: rgba(255,255,255,0.08);
-            color: #e8e8e8;
-            border: 1px solid rgba(255,255,255,0.15);
-        }
-        .btn-secondary:hover { background: rgba(255,255,255,0.12); }
-        .btn-danger {
-            background: rgba(239,68,68,0.15);
-            color: #f87171;
-            border: 1px solid rgba(239,68,68,0.3);
-        }
-        .btn-danger:hover { background: rgba(239,68,68,0.25); }
-        .btn-success {
-            background: rgba(34,197,94,0.15);
-            color: #4ade80;
-            border: 1px solid rgba(34,197,94,0.3);
-        }
-        .btn-success:hover { background: rgba(34,197,94,0.25); }
-        .footer {
-            margin-top: 32px;
-            font-size: 0.75rem;
-            color: #555;
-        }
-        .hidden { display: none !important; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>SSO / MFA Test</h1>
-        
-        <div class="status-badge )"
-             << (isLoggedIn ? "logged-in" : "logged-out") << R"(">
-            <span class="status-dot"></span>
-            )"
-             << (isLoggedIn ? "Authenticated" : "Not Authenticated") << R"(
-        </div>
 
-        <div class="divider"></div>
+        std::string mfaStatus = mfaVerified ? "Verified" : "Single Factor";
+        std::string mfaClass = mfaVerified ? "green" : "orange";
+        std::string mfaDot = mfaVerified ? "dot-green" : "dot-orange";
+        std::string mfaSub = mfaVerified ? "JWT · SSO · TOTP" : "JWT · SSO (No MFA)";
 
-        <p class="section-title">Authentication</p>
-        )" << (isLoggedIn ? "" : R"(<a href="/login" class="btn btn-primary">Login with SSO</a>)")
-             << R"(
-        )" << (isLoggedIn ? R"(<a href="/auth/logout" class="btn btn-danger">Logout</a>)" : "")
-             << R"(
+        std::string body =
+            "<h1 class='page-title'>Dashboard</h1>"
+            "<p class='page-subtitle'>You are authenticated via the SNode.C Identity Provider</p>"
+            "<div class='grid'>"
+              "<div class='tile'>"
+                "<div class='tile-label'>Auth Status</div>"
+                "<div class='tile-value " + mfaClass + "'><span class='dot " + mfaDot + "'></span>" + mfaStatus + "</div>"
+                "<div class='tile-sub'>" + mfaSub + "</div>"
+              "</div>"
+              "<div class='tile'>"
+                "<div class='tile-label'>Protocol</div>"
+                "<div class='tile-value'>OAuth 2.0</div>"
+                "<div class='tile-sub'>Authorization Code + PKCE</div>"
+              "</div>"
+              "<div class='tile'>"
+                "<div class='tile-label'>Second Factor</div>"
+                "<div class='tile-value'>" + std::string(mfaVerified ? "TOTP" : "None") + "</div>"
+                "<div class='tile-sub'>" + std::string(mfaVerified ? "RFC 6238 · HMAC-SHA1" : "MFA not configured or skipped") + "</div>"
+              "</div>"
+              "<div class='tile'>"
+                "<div class='tile-label'>Token</div>"
+                "<div class='tile-value'>JWT</div>"
+                "<div class='tile-sub'>RS256 · Signed by IdP</div>"
+              "</div>"
+            "</div>"
+            "<h2 style='font-size:1rem;font-weight:600;margin-bottom:16px'>Service Status</h2>"
+            "<div class='card'>"
+              "<div class='info-row'>"
+                "<span class='info-label'>Identity Provider</span>"
+                "<span class='green'><span class='dot dot-green'></span>Online · localhost:8083</span>"
+              "</div>"
+              "<div class='info-row'>"
+                "<span class='info-label'>MFA Enforcement</span>"
+                "<span class='" + mfaClass + "'><span class='dot " + mfaDot + "'></span>" + (mfaVerified ? "TOTP Verified" : "Single Factor Only") + "</span>"
+              "</div>"
+              "<div class='info-row'>"
+                "<span class='info-label'>Protected App</span>"
+                "<span class='green'><span class='dot dot-green'></span>Online · localhost:8055</span>"
+              "</div>"
+            "</div>"
+            "<div class='actions'>"
+              "<a href='/' class='btn btn-secondary'>Refresh Dashboard</a>"
+              "<a href='http://localhost:8083/dashboard' class='btn btn-secondary' target='_blank'>"
+                "Open IdP Dashboard</a>"
+            "</div>";
 
-        <div class="divider"></div>
-
-        <p class="section-title">Protected Resources</p>
-        <a href="/profile" class="btn btn-secondary">View Profile</a>
-        <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
-
-        )"
-             << (isLoggedIn ? R"(
-        <div class="divider"></div>
-        <p class="section-title">MFA Settings</p>
-        <a href="/mfa/status" class="btn btn-success">MFA Status</a>
-        <a href="/mfa/setup" class="btn btn-secondary">Setup TOTP</a>
-        <a href="/mfa/disable" class="btn btn-secondary">Disable MFA</a>
-        )"
-                            : "")
-             << R"(
-
-        <div class="footer">SNode.C</div>
-    </div>
-</body>
-</html>)";
-        res->send(html.str());
+        res->send(buildPage("Dashboard", body, claims.username));
     });
 
-    // Login redirect (initiates OAuth2 flow with PKCE)
-    app.get("/login", [] APPLICATION(req, res) {
-        // PKCE values - in production, generate randomly per request
-        // code_verifier is the secret, code_challenge = base64url(sha256(code_verifier))
-        // For demo: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM" -> "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
-        std::string codeVerifier = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-        std::string codeChallenge = "DSmbHrVIcI0EU05-BQxCe1bt-hXRNjejSEvdYbq_g4Q";
-        std::string state = "sso_test_state";
+    // GET /login — initiate OAuth2 + PKCE flow
+    app.get("/login", [&generatePkce] APPLICATION(req, res) {
+        std::string verifier, challenge;
+        generatePkce(verifier, challenge);
 
-        // Store code_verifier in cookie for callback handler to use
-        res->set("Set-Cookie", "pkce_verifier=" + codeVerifier + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=600");
+        const char* httpsEnv = std::getenv("HTTPS_ENABLED");
+        std::string secureFlag = (httpsEnv && std::string(httpsEnv) == "true") ? "; Secure" : "";
+        res->set("Set-Cookie",
+                 "pkce_verifier=" + verifier +
+                 "; Path=/; HttpOnly; SameSite=Lax; Max-Age=600" + secureFlag);
 
         std::stringstream authUrl;
         authUrl << "http://localhost:" << IDP_PORT << "/oauth2/authorize"
-                << "?client_id=snodec-webapp"
+                << "?client_id=" << "snodec-webapp"
                 << "&redirect_uri=http://localhost:" << APP_PORT << "/auth/callback"
                 << "&response_type=code"
-                << "&state=" << state << "&code_challenge=" << codeChallenge << "&code_challenge_method=S256";
+                << "&state=%2F"
+                << "&code_challenge=" << challenge
+                << "&code_challenge_method=S256";
 
         res->redirect(authUrl.str());
     });
 
-    // OAuth2 Callback
+    // GET /auth/callback — IdP redirects here after login
     app.get("/auth/callback", callbackHandler);
 
-    // Logout
+    // GET /auth/logout — clear local token, then chain to IdP for global SLO
     app.get("/auth/logout", [] APPLICATION(req, res) {
-        res->set("Set-Cookie", "access_token=; Path=/; Max-Age=0; HttpOnly");
-        res->redirect("/");
+        const char* httpsEnv = std::getenv("HTTPS_ENABLED");
+        std::string secureFlag = (httpsEnv && std::string(httpsEnv) == "true") ? "; Secure" : "";
+        res->set("Set-Cookie",
+                 "access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" + secureFlag);
+
+        std::stringstream logoutUrl;
+        logoutUrl << "http://localhost:" << IDP_PORT << "/auth/logout"
+                  << "?redirect_uri=http://localhost:" << APP_PORT << "/";
+        res->redirect(logoutUrl.str());
     });
 
-    // Profile (Protected)
-    app.get("/profile", authMiddleware, [] APPLICATION(req, res) {
+    // GET /profile — protected, shows JWT-extracted username
+    app.get("/profile", authMiddleware, [&buildPage] APPLICATION(req, res) {
         std::string username;
         req->getAttribute<std::string>(
-            [&username](std::string& val) {
-                username = val;
-            },
-            "X-Username");
+            [&username](std::string& val) { username = val; }, "X-Username");
+        bool mfaVerified = false;
+        req->getAttribute<bool>([&mfaVerified](bool val) { mfaVerified = val; }, "X-MfaVerified");
 
-        std::stringstream html;
-        html << R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Profile - SSO/MFA Test</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #e8e8e8; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; max-width: 400px; text-align: center; }
-        h1 { margin-bottom: 24px; }
-        .info { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 16px; margin: 16px 0; }
-        a { color: #3b82f6; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>User Profile</h1>
-        <div class="info">
-            <p><strong>Username:</strong> )"
-             << (username.empty() ? "Unknown" : username) << R"(</p>
-            <p><strong>Auth:</strong> JWT + SSO</p>
-        </div>
-        <a href="/">← Back to Home</a>
-    </div>
-</body>
-</html>)";
-        res->send(html.str());
+        std::stringstream body;
+        body << "<h1 class='page-title'>User Profile</h1>"
+             << "<p class='page-subtitle'>Your identity as verified by the SNode.C IdP</p>"
+             << "<div class='card'>"
+             << "<div class='info-row'><span class='info-label'>Username</span>"
+             << "<span>" << (username.empty() ? "Unknown" : username) << "</span></div>"
+             << "<div class='info-row'><span class='info-label'>Authentication</span>"
+             << "<span class='green'><span class='dot dot-green'></span>JWT + SSO</span></div>"
+             << "<div class='info-row'><span class='info-label'>Second Factor Status</span>"
+             << "<span class='" << (mfaVerified ? "green" : "orange") << "'><span class='dot " << (mfaVerified ? "dot-green" : "dot-orange") << "'></span>"
+             << (mfaVerified ? "TOTP Verified" : "Single Factor (MFA Skipped/Not Enabled)") << "</span></div>"
+             << "<div class='info-row'><span class='info-label'>Token Format</span>"
+             << "<span>RS256 JWT</span></div>"
+             << "</div>"
+             << "<div class='actions'><a href='/' class='btn btn-secondary'>← Dashboard</a></div>";
+
+        res->send(buildPage("Profile", body.str(), username));
     });
 
-    // Dashboard (Protected)
-    app.get("/dashboard", authMiddleware, [] APPLICATION(req, res) {
-        std::string html = R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Dashboard - SSO/MFA Test</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #e8e8e8; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; max-width: 500px; }
-        h1 { margin-bottom: 24px; text-align: center; }
-        .status { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .status:last-child { border: none; }
-        .ok { color: #4ade80; }
-        a { color: #3b82f6; text-decoration: none; display: block; text-align: center; margin-top: 24px; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>System Dashboard</h1>
-        <div class="status"><span>IdP Server</span><span class="ok">● Online</span></div>
-        <div class="status"><span>JWT Verification</span><span class="ok">● Active</span></div>
-        <div class="status"><span>TOTP Service</span><span class="ok">● Ready</span></div>
-        <div class="status"><span>Session</span><span class="ok">● Valid</span></div>
-        <a href="/">← Back to Home</a>
-    </div>
-</body>
-</html>)";
-        res->send(html);
+    // GET /mfa/status — protected, shows MFA info
+    app.get("/mfa/status", authMiddleware, [&buildPage] APPLICATION(req, res) {
+        std::string username;
+        req->getAttribute<std::string>(
+            [&username](std::string& val) { username = val; }, "X-Username");
+        bool mfaVerified = false;
+        req->getAttribute<bool>([&mfaVerified](bool val) { mfaVerified = val; }, "X-MfaVerified");
+
+        std::stringstream body;
+        body << "<h1 class='page-title'>MFA Status</h1>"
+             << "<p class='page-subtitle'>Multi-Factor Authentication configuration</p>"
+             << "<div class='card'>"
+             << "<div class='info-row'><span class='info-label'>TOTP (RFC 6238)</span>"
+             << "<span class='green'><span class='dot dot-green'></span>Enabled</span></div>"
+             << "<div class='info-row'><span class='info-label'>Algorithm</span>"
+             << "<span>HMAC-SHA1</span></div>"
+             << "<div class='info-row'><span class='info-label'>Validity Window</span>"
+             << "<span>30 seconds</span></div>"
+             << "<div class='info-row'><span class='info-label'>Compatible Apps</span>"
+             << "<span>Google Authenticator, Authy</span></div>"
+             << "</div>"
+             << "<div class='actions'><a href='/' class='btn btn-secondary'>← Dashboard</a></div>";
+
+        res->send(buildPage("MFA Status", body.str(), username));
     });
 
-    // MFA Status
-    app.get("/mfa/status", authMiddleware, [] APPLICATION(req, res) {
-        std::string html = R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>MFA Status</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #e8e8e8; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; max-width: 400px; text-align: center; }
-        h1 { margin-bottom: 16px; }
-        .badge { display: inline-block; padding: 8px 16px; border-radius: 20px; font-size: 0.9rem; margin: 16px 0; }
-        .enabled { background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
-        .disabled { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
-        a { color: #3b82f6; text-decoration: none; display: block; margin-top: 24px; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>MFA Status</h1>
-        <p>Multi-Factor Authentication</p>
-        <div class="badge enabled">TOTP Enabled</div>
-        <p style="color:#888; font-size: 0.85rem;">Using Google/Microsoft Authenticator</p>
-        <a href="/">← Back to Home</a>
-    </div>
-</body>
-</html>)";
-        res->send(html);
-    });
-
-    // MFA Setup - Redirect to IdP for TOTP enrollment
-    app.get("/mfa/setup", authMiddleware, [] APPLICATION(req, res) {
-        // Get user_id from JWT claims (would need to extract from token in production)
-        // For now, show instructions and link to IdP enrollment
-        std::string html = R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Setup TOTP - SSO/MFA Test</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #e8e8e8; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; max-width: 450px; text-align: center; }
-        h1 { margin-bottom: 16px; }
-        .info { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 16px; margin: 20px 0; text-align: left; }
-        .info p { margin: 8px 0; color: #93c5fd; font-size: 0.9rem; }
-        .btn { display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; text-decoration: none; margin: 8px; }
-        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(34,197,94,0.4); }
-        .btn-secondary { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); }
-        a.back { color: #3b82f6; text-decoration: none; display: block; margin-top: 24px; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>🔐 Setup Two-Factor Authentication</h1>
-        <p style="color:#888;">Add an extra layer of security to your account</p>
-        
-        <div class="info">
-            <p><strong>How it works:</strong></p>
-            <p>1. You'll scan a QR code with your authenticator app</p>
-            <p>2. Enter the 6-digit code to verify setup</p>
-            <p>3. Future logins will require both password + code</p>
-        </div>
-        
-        <a href="http://localhost:)" +
-                           std::to_string(IDP_PORT) + R"(/auth/enroll/totp?user_id=1" class="btn">Setup TOTP Now</a>
-        
-        <a href="/" class="back">← Back to Home</a>
-    </div>
-</body>
-</html>)";
-        res->send(html);
-    });
-
-    // MFA Disable - Simulated
-    app.get("/mfa/disable", authMiddleware, [] APPLICATION(req, res) {
-        std::string html = R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>MFA Disabled</title>
-    <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a2e; color: #e8e8e8; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
-        .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 40px; max-width: 450px; text-align: center; }
-        h1 { margin-bottom: 16px; color: #f87171; }
-        p { color: #aaa; margin-bottom: 24px; }
-        .btn { display: inline-block; padding: 12px 24px; background: rgba(255,255,255,0.08); color: #e8e8e8; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; text-decoration: none; }
-        .btn:hover { background: rgba(255,255,255,0.12); }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>MFA Disabled</h1>
-        <p>Multi-Factor Authentication has been disabled for your account (Simulated).</p>
-        <p style="font-size: 0.8rem; opacity: 0.7;">Note: In a real environment, this would call the IdP API.</p>
-        <a href="/" class="btn">Return Home</a>
-    </div>
-</body>
-</html>)";
-        res->send(html);
-    });
-
-    // Start server
-    app.listen(APP_PORT, [](const express::legacy::in::WebApp::SocketAddress& socketAddress, const core::socket::State& state) {
-        if (state == core::socket::State::OK) {
-            VLOG(0) << "SSO-MFA Test App listening on " << socketAddress.toString();
-        } else {
-            LOG(ERROR) << "Failed to start: " << socketAddress.toString();
-        }
-    });
+    // ── Start server ──────────────────────────────────────────────────────────
+    app.listen(APP_PORT,
+               [](const express::legacy::in::WebApp::SocketAddress& addr,
+                  const core::socket::State& state) {
+                   if (state == core::socket::State::OK) {
+                       VLOG(0) << "SSO-MFA Protected App listening on " << addr.toString();
+                   } else {
+                       LOG(ERROR) << "Failed to start: " << addr.toString();
+                   }
+               });
 
     return core::SNodeC::start();
 }

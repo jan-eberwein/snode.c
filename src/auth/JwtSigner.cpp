@@ -32,7 +32,7 @@ namespace snodec {
             std::string headerJson = R"({"alg":"RS256","typ":"JWT","kid":"snodec-key-2024"})";
             std::string headerB64 = base64UrlEncode(headerJson);
 
-            // 2. Payload
+            // 2. Payload (RFC 7519 registered claims)
             std::stringstream ss;
             ss << "{";
             ss << "\"iss\":\"" << issuer_ << "\",";
@@ -40,9 +40,13 @@ namespace snodec {
             ss << "\"aud\":\"" << claims.audience << "\",";
 
             auto exp = std::chrono::system_clock::to_time_t(claims.expiresAt);
+            auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             ss << "\"exp\":" << exp << ",";
+            ss << "\"iat\":" << now << ",";  // Issued At (RFC 7519 §4.1.6)
+            ss << "\"nbf\":" << now << ",";  // Not Before (RFC 7519 §4.1.5)
 
             ss << "\"username\":\"" << claims.username << "\",";
+            ss << "\"mfa_verified\":" << (claims.mfaVerified ? "true" : "false") << ",";
 
             ss << "\"scope\":[";
             for (size_t i = 0; i < claims.scopes.size(); ++i) {

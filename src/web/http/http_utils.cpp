@@ -94,7 +94,7 @@ namespace httputils {
                 escaped << c;
             } else {
                 escaped << std::uppercase;
-                escaped << '%' << std::setw(2) << static_cast<unsigned char>(c);
+                escaped << '%' << std::setw(2) << static_cast<int>(static_cast<unsigned char>(c));
                 escaped << std::nouppercase;
             }
         }
