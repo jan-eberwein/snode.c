@@ -279,7 +279,8 @@ namespace express::dispatcher {
 
         return out;
     }
-    static bool matchAndFillParamsAndConsume(const std::regex& rx,
+
+    inline bool matchAndFillParamsAndConsume(const std::regex& rx,
                                              const std::vector<std::string>& names,
                                              std::string_view reqPath,
                                              std::map<std::string, std::string>& params,
@@ -617,12 +618,13 @@ namespace express::dispatcher {
         return std::string(parentMountPath) + std::string(relativeMountPath);
     }
 
-
     static MountMatchResult matchMountPointImpl(express::Controller& controller,
                                                 const std::string& absoluteMountPath,
                                                 const express::MountPoint& mountPoint,
                                                 std::regex* cachedRegex,
-                                                std::vector<std::string>* cachedNames) {
+                                                std::vector<std::string>* cachedNames,
+                                                bool strictRouting,
+                                                bool caseInsensitiveRouting) {
         MountMatchResult result;
         result.isPrefix = (mountPoint.method == "use");
 
@@ -636,7 +638,7 @@ namespace express::dispatcher {
         result.requestQueryPairs = parseQuery(requestQueryString);
 
         // Normalize single trailing slash if not strict
-        if (!controller.getStrictRouting()) {
+        if (!strictRouting) {
             mountPath = trimOneTrailingSlash(mountPath);
             requestPath = trimOneTrailingSlash(requestPath);
         }
@@ -647,17 +649,18 @@ namespace express::dispatcher {
         result.requestPath = requestPath;
 
         bool pathMatches = false;
-        bool decodeError = false;
-        std::size_t matchLen = 0;
 
         if (routeNeedsRegex(mountPath)) {
+            bool decodeError = false;
+            std::size_t matchLen = 0;
+
             // Param mount: optionally compile once, match once, fill params, and record matched prefix length
             if (cachedRegex != nullptr && cachedNames != nullptr) {
                 if (cachedNames->empty()) {
                     auto compiled = compileParamRegex(mountPath,
                                                       /*isPrefix*/ result.isPrefix,
-                                                      controller.getStrictRouting(),
-                                                      controller.getCaseInsensitiveRouting());
+                                                      strictRouting,
+                                                      caseInsensitiveRouting);
                     *cachedRegex = std::move(compiled.first);
                     *cachedNames = std::move(compiled.second);
                 }
@@ -665,8 +668,8 @@ namespace express::dispatcher {
             } else {
                 auto [rx, names] = compileParamRegex(mountPath,
                                                      /*isPrefix*/ result.isPrefix,
-                                                     controller.getStrictRouting(),
-                                                     controller.getCaseInsensitiveRouting());
+                                                     strictRouting,
+                                                     caseInsensitiveRouting);
                 pathMatches = matchAndFillParamsAndConsume(rx, names, requestPath, result.params, matchLen, decodeError);
             }
 
@@ -680,13 +683,13 @@ namespace express::dispatcher {
         } else {
             if (result.isPrefix) {
                 // Literal boundary prefix
-                pathMatches = boundaryPrefix(requestPath, mountPath, controller.getCaseInsensitiveRouting());
+                pathMatches = boundaryPrefix(requestPath, mountPath, caseInsensitiveRouting);
                 if (pathMatches) {
                     result.consumedLength = (mountPath.size() == 1 && mountPath[0] == '/') ? 0 : mountPath.size();
                 }
             } else {
                 // End-anchored equality
-                pathMatches = equalPath(requestPath, mountPath, controller.getCaseInsensitiveRouting());
+                pathMatches = equalPath(requestPath, mountPath, caseInsensitiveRouting);
             }
         }
 
@@ -695,20 +698,18 @@ namespace express::dispatcher {
         return result;
     }
 
-    MountMatchResult
-    matchMountPoint(express::Controller& controller, const std::string& absoluteMountPath, const express::MountPoint& mountPoint) {
-        return matchMountPointImpl(controller, absoluteMountPath, mountPoint, nullptr, nullptr);
-    }
-
     MountMatchResult matchMountPoint(express::Controller& controller,
                                      const std::string& absoluteMountPath,
                                      const express::MountPoint& mountPoint,
                                      std::regex& cachedRegex,
-                                     std::vector<std::string>& cachedNames) {
-        return matchMountPointImpl(controller, absoluteMountPath, mountPoint, &cachedRegex, &cachedNames);
+                                     std::vector<std::string>& cachedNames,
+                                     bool strictRouting,
+                                     bool caseInsensitiveRouting) {
+        return matchMountPointImpl(
+            controller, absoluteMountPath, mountPoint, &cachedRegex, &cachedNames, strictRouting, caseInsensitiveRouting);
     }
 
-    ScopedPathStrip::ScopedPathStrip(express::Request& req, std::string_view requestUrl, bool enabled, std::size_t consumedLength)
+    ScopedPathStrip::ScopedPathStrip(express::Request& req, bool enabled, std::size_t consumedLength)
         : req_(&req)
         , enabled_(enabled) {
         if (!enabled_) {
@@ -726,12 +727,12 @@ namespace express::dispatcher {
         //  - req.url and req.path become the remainder (path + query / path)
         std::string_view fullPath;
         std::string_view fullQuery;
-        splitPathAndQuery(requestUrl, fullPath, fullQuery);
+        splitPathAndQuery(req.url, fullPath, fullQuery);
 
         // IMPORTANT:
-        // requestUrl may alias req.url. We mutate req.url below, which can reallocate
-        // and invalidate fullQuery/fullPath string_views. Keep an owning copy of the
-        // query part before touching req.url.
+        // We mutate req.url below, which can reallocate and invalidate fullQuery/fullPath
+        // string_views.
+        // Keep an owning copy of the query part before touching req.url.
         std::string fullQueryCopy;
         if (!fullQuery.empty()) {
             fullQueryCopy.assign(fullQuery.begin(), fullQuery.end());
@@ -740,7 +741,7 @@ namespace express::dispatcher {
         // Compute consumed part and remainder (consumedLength refers to the matched prefix in the path).
         const std::size_t cl = std::min<std::size_t>(consumedLength, fullPath.size());
         std::string_view consumed = fullPath.substr(0, cl);
-        std::string_view remainder = (fullPath.size() > cl) ? fullPath.substr(cl) : std::string_view{};
+        const std::string_view remainder = (fullPath.size() > cl) ? fullPath.substr(cl) : std::string_view{};
 
         // baseUrl never ends with a trailing slash and is empty for the root mount.
         consumed = trimOneTrailingSlash(consumed);

@@ -44,8 +44,8 @@
 
 // IWYU pragma: always_keep
 
-#include "core/socket/stream/legacy/SocketConnection.h" // IWYU pragma: export
-#include "core/socket/stream/legacy/SocketConnector.h"
+#include "core/socket/stream/legacy/SocketConnection.h"     // IWYU pragma: export
+#include "core/socket/stream/legacy/SocketConnector.h"      // IWYU pragma: export
 #include "net/in/stream/SocketClient.h"                     // IWYU pragma: export
 #include "net/in/stream/legacy/config/ConfigSocketClient.h" // IWYU pragma: export
 
@@ -73,7 +73,7 @@ namespace net::in::stream::legacy {
     template <typename SocketContextFactory, typename... SocketContextFactoryArgs>
     SocketClient<SocketContextFactory, SocketContextFactoryArgs...>
     Client(const std::string& instanceName,
-           const std::function<void(typename SocketClient<SocketContextFactory, SocketContextFactoryArgs...>::Config&)>& configurator,
+           const std::function<void(net::in::stream::legacy::config::ConfigSocketClient&)>& configurator,
            SocketContextFactoryArgs&&... socketContextFactoryArgs) {
         return core::socket::stream::Client<SocketClient<SocketContextFactory, SocketContextFactoryArgs...>>(
             instanceName, configurator, std::forward<SocketContextFactoryArgs>(socketContextFactoryArgs)...);
@@ -82,7 +82,7 @@ namespace net::in::stream::legacy {
     template <typename SocketContextFactory,
               typename... SocketContextFactoryArgs,
               typename = std::enable_if_t<not std::is_invocable_v<std::tuple_element_t<0, std::tuple<SocketContextFactoryArgs...>>,
-                                                                  typename SocketClient<SocketContextFactory>::Config&>>>
+                                                                  typename SocketClient<SocketContextFactory>::Config*>>>
     SocketClient<SocketContextFactory, SocketContextFactoryArgs...> Client(const std::string& instanceName,
                                                                            SocketContextFactoryArgs&&... socketContextFactoryArgs) {
         return core::socket::stream::Client<SocketClient<SocketContextFactory, SocketContextFactoryArgs...>>(

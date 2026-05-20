@@ -92,29 +92,6 @@ namespace express {
         return std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getRoutes("", mountPoint);
     }
 
-    bool RootRoute::setStrictRouting(bool strictRouting) {
-        const bool oldStrictRouting = std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getStrictRouting();
-
-        std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->setStrictRouting(strictRouting);
-
-        return oldStrictRouting;
-    }
-
-    bool RootRoute::setCaseInsensitiveRouting(bool caseInsensitiveRouting) {
-        const bool oldCaseInsensitiveRouting =
-            std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getCaseInsensitiveRouting();
-
-        std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->setCaseInsensitiveRouting(caseInsensitiveRouting);
-
-        return oldCaseInsensitiveRouting;
-    }
-
-    bool RootRoute::setMergeParams(bool mergeParams) {
-        const bool oldMergeParams = std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getMergeParams();
-        std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->setMergeParams(mergeParams);
-        return oldMergeParams;
-    }
-
     void RootRoute::dispatch(Controller&& controller) {
         controller.setRootRoute(this);
 
@@ -122,17 +99,39 @@ namespace express {
     }
 
     void RootRoute::dispatch(Controller& controller) {
-        const bool oldStrictRoute =
-            controller.setStrictRouting(std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getStrictRouting());
-        const bool oldCaseInsensitiveRouting = controller.setCaseInsensitiveRouting(
-            std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getCaseInsensitiveRouting());
-
-        if (!Route::dispatch(controller)) {
+        if (!Route::dispatch(controller, false, true, false)) {
             controller.getResponse()->sendStatus(404);
         }
+    }
 
-        controller.setStrictRouting(oldStrictRoute);
-        controller.setCaseInsensitiveRouting(oldCaseInsensitiveRouting);
+    RootRoute& RootRoute::setStrictRouting(bool strictRouting) {
+        std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->setStrictRouting(strictRouting);
+
+        return *this;
+    }
+
+    bool RootRoute::getStrictRouting() const {
+        return std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getStrictRouting();
+    }
+
+    RootRoute& RootRoute::setCaseInsensitiveRouting(bool caseInsensitiveRouting) {
+        std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->setCaseInsensitiveRouting(caseInsensitiveRouting);
+
+        return *this;
+    }
+
+    bool RootRoute::getCaseInsensitiveRouting() const {
+        return std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getCaseInsensitiveRouting();
+    }
+
+    RootRoute& RootRoute::setMergeParams(bool mergeParams) {
+        std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->setMergeParams(mergeParams);
+
+        return *this;
+    }
+
+    bool RootRoute::getMergeParams() const {
+        return std::dynamic_pointer_cast<dispatcher::RouterDispatcher>(dispatcher)->getMergeParams();
     }
 
     DEFINE_ROOTROUTE_REQUESTMETHOD(use, "use")

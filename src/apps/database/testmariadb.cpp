@@ -45,6 +45,7 @@
 #include "database/mariadb/MariaDBClient.h"
 #include "database/mariadb/MariaDBCommandSequence.h"
 #include "utils/Config.h"
+#include "utils/SubCommand.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -54,17 +55,46 @@
 #include <functional>
 #include <mysql.h>
 #include <string>
+#include <string_view>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
+class ConfigDb : public utils::SubCommand {
+public:
+    constexpr static std::string_view NAME{"db"};
+    constexpr static std::string_view DESCRIPTION{"Database connection"};
+
+    ConfigDb(SubCommand* parent)
+        : SubCommand(parent, this, "Database") {
+        hostOpt = setConfigurable(
+            addOption("--db-host", "Hostname or IP-Address of Server", "hostname|IPv4", CLI::TypeValidator<std::string>()), true);
+
+        required(hostOpt);
+    }
+
+    ConfigDb& setHost(const std::string& host) {
+        setDefaultValue(hostOpt, host);
+        required(hostOpt, false);
+
+        return *this;
+    }
+
+    std::string getHost() {
+        return hostOpt->as<std::string>();
+    }
+
+private:
+    CLI::Option* hostOpt;
+};
+
 int main(int argc, char* argv[]) {
-    utils::Config::addStringOption("--db-host", "Hostname of IP-Address of Server", "[hostname|IP-address]", "localhost", true);
+    utils::Config::configRoot.newSubCommand<ConfigDb>()->setHost("localhost");
 
     core::SNodeC::init(argc, argv);
 
     const database::mariadb::MariaDBConnectionDetails details = {
         .connectionName = "testconnection",
-        .hostname = utils::Config::getStringOptionValue("--db-host"),
+        .hostname = utils::Config::configRoot.getSubCommand<ConfigDb>()->getHost(),
         .username = "snodec",
         .password = "pentium5",
         .database = "snodec",

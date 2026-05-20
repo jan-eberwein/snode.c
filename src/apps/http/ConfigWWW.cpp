@@ -39,55 +39,31 @@
  * THE SOFTWARE.
  */
 
-#include "utils/Exceptions.h"
+#include "ConfigWWW.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#include <string>
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
-#endif // DOXYGEN_SHOULD_SKIP_THIS
+namespace subcommand {
 
-namespace CLI {
+    ConfigWWW::ConfigWWW(SubCommand* parent)
+        : utils::SubCommand(parent, this, "Applications") {
+        htmlRootOpt = addOption("--html-root", "HTML root directory", "directory", CLI::ExistingDirectory);
 
-    CallForCommandline::CallForCommandline(CLI::App* app, const std::string& description, Mode mode)
-        : CLI::Success("CallForCommandline", description, CLI::ExitCodes::Success)
-        , app(app)
-        , mode(mode) {
+        required(htmlRootOpt);
     }
 
-    CallForCommandline::~CallForCommandline() {
+    ConfigWWW& ConfigWWW::setHtmlRoot(const std::string& htmlRoot) {
+        setDefaultValue(htmlRootOpt, htmlRoot);
+
+        required(htmlRootOpt, false);
+
+        return *this;
     }
 
-    CLI::App* CallForCommandline::getApp() const {
-        return app;
+    std::string ConfigWWW::getHtmlRoot() {
+        return htmlRootOpt->as<std::string>();
     }
 
-    CallForCommandline::Mode CallForCommandline::getMode() const {
-        return mode;
-    }
-
-    CallForShowConfig::CallForShowConfig(CLI::App* app)
-        : CLI::Success("CallForPrintConfig", "Show current configuration", CLI::ExitCodes::Success)
-        , app(app) {
-    }
-
-    CallForShowConfig::~CallForShowConfig() {
-    }
-
-    CLI::App* CallForShowConfig::getApp() const {
-        return app;
-    }
-
-    CallForWriteConfig::CallForWriteConfig(const std::string& configFile)
-        : CLI::Success("CallForWriteConfig", "Writing config file: " + configFile, CLI::ExitCodes::Success)
-        , configFile(configFile) {
-    }
-
-    CallForWriteConfig::~CallForWriteConfig() {
-    }
-
-    std::string CallForWriteConfig::getConfigFile() const {
-        return configFile;
-    }
-
-} // namespace CLI
+} // namespace subcommand

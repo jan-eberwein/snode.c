@@ -69,8 +69,8 @@
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 static void logResponse(const std::shared_ptr<web::http::client::Request>& req, const std::shared_ptr<web::http::client::Response>& res) {
-    VLOG(1) << req->getSocketContext()->getSocketConnection()->getConnectionName() << " HTTP response: " << req->method << " " << req->url
-            << " HTTP/" << req->httpMajor << "." << req->httpMinor << "\n"
+    VLOG(1) << req->getConnectionName() << " HTTP response: " << req->method << " " << req->url << " HTTP/" << req->httpMajor << "."
+            << req->httpMinor << "\n"
             << httputils::toString(req->method,
                                    req->url,
                                    "HTTP/" + std::to_string(req->httpMajor) + "." + std::to_string(req->httpMinor),
@@ -283,26 +283,13 @@ namespace apps::http::legacy {
                     [req](const std::shared_ptr<Request>&, const std::string&) {
                     });
                 req->url = "/";
-                req->set("Connection", "keep-alive");
+                req->set("Connection", "close");
                 req->end(
                     [](const std::shared_ptr<Request>& req, const std::shared_ptr<Response>& res) {
                         logResponse(req, res);
                     },
                     [req](const std::shared_ptr<Request>&, const std::string&) {
                     });
-
-                /*
-                    const std::shared_ptr<web::http::client::tools::EventSource> eventStream_1 =
-                        web::http::legacy::NET::EventSource("http://localhost:8080/sse");
-                */
-                /*
-                const std::shared_ptr<web::http::client::tools::EventSource> eventStream_1 =
-                    web::http::legacy::NET::EventSource("localhost", 8080, "/sse");
-                */
-                /*
-                const std::shared_ptr<web::http::client::tools::EventSource> eventStream_1 =
-                    web::http::legacy::NET::EventSource("http://localhost:8080", "/sse");
-                */
 
                 const std::shared_ptr<web::http::client::tools::EventSource> eventStream_1 =
                     web::http::legacy::NET::EventSource("http://" + req->hostFieldValue, "/sse?hihi=3");
@@ -360,26 +347,6 @@ namespace apps::http::legacy {
                         VLOG(0) << "EventListener for 'myevent' 2:2: " << message.lastEventId << " : " << message.data;
                     });
                 }
-
-            /*
-                req->requestEventSource("/sse", [request = std::weak_ptr<MasterRequest>(req)]() -> std::size_t {
-                    std::size_t consumed = 0;
-
-                    if (!request.expired()) {
-                        char message[2048];
-                        consumed = request.lock()->getSocketContext()->readFromPeer(message, 2047);
-                        message[consumed] = 0;
-
-                        std::cout << "Message: " << message;
-                    } else {
-                        if (!request.expired()) {
-                            logResponse(request.lock(), std::shared_ptr<web::http::client::Response>());
-                        }
-                    }
-
-                    return consumed;
-                });
-            */
 
             /*
             req->httpMinor = 1;
@@ -500,7 +467,7 @@ namespace apps::http::legacy {
 #endif
             },
             []([[maybe_unused]] const std::shared_ptr<Request>& req) {
-                VLOG(1) << req->getSocketContext()->getSocketConnection()->getConnectionName() << ": OnRequestEnd";
+                VLOG(1) << req->getConnectionName() << ": OnRequestEnd";
             });
 
         client.setOnConnect([](SocketConnection* socketConnection) { // onConnect
@@ -686,7 +653,7 @@ namespace apps::http::tls {
                     });
             },
             []([[maybe_unused]] const std::shared_ptr<Request>& req) {
-                VLOG(1) << req->getSocketContext()->getSocketConnection()->getConnectionName() << ": OnRequestEnd";
+                VLOG(1) << req->getConnectionName() << ": OnRequestEnd";
             });
 
         client.setOnConnect([](SocketConnection* socketConnection) { // onConnect

@@ -42,25 +42,22 @@
 #ifndef NET_CONFIG_CONFIGINSTANCE_H
 #define NET_CONFIG_CONFIGINSTANCE_H
 
-#ifndef DOXYGEN_SHOULD_SKIP_THIS
-
-namespace CLI {
-    class App;
-    class Option;
-} // namespace CLI
+#include "utils/SubCommand.h" // IWYU pragma: export
 
 namespace net::config {
     class ConfigSection;
 }
 
-#include <cstdint>
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
+
+#include <functional>
 #include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::config {
 
-    class ConfigInstance {
+    class ConfigInstance : public utils::SubCommand {
     public:
         using Instance = ConfigInstance;
 
@@ -69,7 +66,7 @@ namespace net::config {
     protected:
         explicit ConfigInstance(const std::string& instanceName, Role role);
 
-        virtual ~ConfigInstance();
+        ~ConfigInstance() override;
 
     public:
         ConfigInstance(ConfigInstance&) = delete;
@@ -78,35 +75,30 @@ namespace net::config {
         ConfigInstance& operator=(ConfigInstance&) = delete;
         ConfigInstance& operator=(ConfigInstance&&) = delete;
 
-        Role getRole();
-
         const std::string& getInstanceName() const;
-        void setInstanceName(const std::string& instanceName);
+        ConfigInstance* setInstanceName(const std::string& instanceName);
 
         bool getDisabled() const;
-        void setDisabled(bool disabled = true);
+        ConfigInstance* setDisabled(bool disabled = true);
 
-        CLI::App* addSection(const std::string& name, const std::string& description, const std::string& group = "Sections");
-        CLI::App* getSection(const std::string& name, bool onlyGot = false, bool recursive = false) const;
-        bool gotSection(const std::string& name, bool recursive = false) const;
+        ConfigInstance* configurable(bool configurable);
 
-        void required(CLI::App* section, bool req = true);
-        bool getRequired() const;
+        ConfigInstance* setOnDestroy(const std::function<void(ConfigInstance*)>& onDestroy);
 
-        CLI::App* get() const;
-
-        void configurable(bool configurable = true);
+        static CLI::App* getHelpTriggerApp();
+        static CLI::App* getShowConfigTriggerApp();
+        static CLI::App* extracted();
+        static CLI::App* getCommandlineTriggerApp();
 
     private:
-        uint8_t requiredCount = 0;
-
         std::string instanceName;
         static const std::string nameAnonymous;
 
         Role role;
 
-        CLI::App* instanceSc = nullptr;
         CLI::Option* disableOpt = nullptr;
+
+        std::function<void(ConfigInstance*)> onDestroy;
 
         friend class net::config::ConfigSection;
     };

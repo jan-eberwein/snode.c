@@ -51,10 +51,6 @@ namespace net::config {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-namespace CLI {
-    class Option;
-}
-
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::in6::stream::config {
@@ -67,16 +63,16 @@ namespace net::in6::stream::config {
         ~ConfigSocketServer() override;
 
     public:
-        ConfigSocketServer& setReuseAddress(bool reuseAddress = true);
+        ConfigSocketServer* setReuseAddress(bool reuseAddress = true);
         bool getReuseAddress() const;
 
-        ConfigSocketServer& setReusePort(bool reusePort = true);
+        ConfigSocketServer* setReusePort(bool reusePort = true);
         bool getReusePort() const;
 
-        ConfigSocketServer& setIPv6Only(bool iPv6Only = true);
+        ConfigSocketServer* setIPv6Only(bool iPv6Only = true);
         bool getIPv6Only() const;
 
-        ConfigSocketServer& setDisableNagleAlgorithm(bool disableNagleAlgorithm = true);
+        ConfigSocketServer* setDisableNagleAlgorithm(bool disableNagleAlgorithm = true);
         bool getDisableNagleAlgorithm() const;
 
     private:

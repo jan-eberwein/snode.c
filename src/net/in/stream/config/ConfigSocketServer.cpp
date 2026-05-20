@@ -45,34 +45,10 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
-#ifdef __has_warning
-#if __has_warning("-Wweak-vtables")
-#pragma GCC diagnostic ignored "-Wweak-vtables"
-#endif
-#if __has_warning("-Wcovered-switch-default")
-#pragma GCC diagnostic ignored "-Wcovered-switch-default"
-#endif
-#if __has_warning("-Wmissing-noreturn")
-#pragma GCC diagnostic ignored "-Wmissing-noreturn"
-#endif
-#if __has_warning("-Wnrvo")
-#pragma GCC diagnostic ignored "-Wnrvo"
-#endif
-#endif
-#endif
-#include "utils/CLI11.hpp"
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
 #include "core/system/netdb.h"
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -83,17 +59,17 @@ namespace net::in::stream::config {
 
     ConfigSocketServer::ConfigSocketServer(net::config::ConfigInstance* instance)
         : net::config::stream::ConfigSocketServer<net::in::config::ConfigAddress, net::in::config::ConfigAddressReverse>(instance) {
-        net::in::config::ConfigAddress<net::config::ConfigAddressLocal>::setPortRequired();
-        net::in::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiFlags(AI_PASSIVE);
-        net::in::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiSockType(SOCK_STREAM);
-        net::in::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiProtocol(IPPROTO_TCP);
+        Local::setPortRequired();
+        Local::setAiFlags(AI_PASSIVE);
+        Local::setAiSockType(SOCK_STREAM);
+        Local::setAiProtocol(IPPROTO_TCP);
 
         reuseAddressOpt = net::config::ConfigPhysicalSocket::addSocketOption( //
             "--reuse-address{true}",
             SOL_SOCKET,
             SO_REUSEADDR,
             "Reuse socket address",
-            "bool",
+            "BOOL",
             XSTR(IN_REUSE_ADDRESS),
             CLI::IsMember({"true", "false"}));
 
@@ -102,7 +78,7 @@ namespace net::in::stream::config {
             SOL_SOCKET,
             SO_REUSEPORT,
             "Reuse port number",
-            "bool",
+            "BOOL",
             XSTR(IN_REUSE_PORT),
             CLI::IsMember({"true", "false"}));
 
@@ -111,62 +87,59 @@ namespace net::in::stream::config {
             IPPROTO_TCP,
             TCP_NODELAY,
             "Turn of Nagle algorithm",
-            "tristat",
+            "TRISTAT",
             XSTR(IN_SERVER_DISABLE_NAGLE_ALGORITHM),
             CLI::IsMember({"true", "false", "default"}));
+        if (std::string(XSTR(IN6_SERVER_DISABLE_NAGLE_ALGORITHM)) == "default") {
+            Local::setDefaultValue(disableNagleAlgorithmOpt, "false");
+        }
     }
 
     ConfigSocketServer::~ConfigSocketServer() {
     }
 
-    ConfigSocketServer& ConfigSocketServer::setReuseAddress(bool reuseAddress) {
+    ConfigSocketServer* ConfigSocketServer::setReuseAddress(bool reuseAddress) {
         if (reuseAddress) {
             addSocketOption(SOL_SOCKET, SO_REUSEADDR, 1);
         } else {
             addSocketOption(SOL_SOCKET, SO_REUSEADDR, 0);
         }
 
-        reuseAddressOpt //
-            ->default_val(reuseAddress ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(reuseAddressOpt, reuseAddress ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getReuseAddress() const {
         return reuseAddressOpt->as<bool>();
     }
 
-    ConfigSocketServer& ConfigSocketServer::setReusePort(bool reusePort) {
+    ConfigSocketServer* ConfigSocketServer::setReusePort(bool reusePort) {
         if (reusePort) {
             addSocketOption(SOL_SOCKET, SO_REUSEPORT, 1);
         } else {
             addSocketOption(SOL_SOCKET, SO_REUSEPORT, 0);
         }
 
-        reusePortOpt //
-            ->default_val(reusePort ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(reusePortOpt, reusePort ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getReusePort() const {
         return reusePortOpt->as<bool>();
     }
 
-    ConfigSocketServer& ConfigSocketServer::setDisableNagleAlgorithm(bool disableNagleAlgorithm) {
+    ConfigSocketServer* ConfigSocketServer::setDisableNagleAlgorithm(bool disableNagleAlgorithm) {
         if (disableNagleAlgorithm) {
             addSocketOption(IPPROTO_TCP, TCP_NODELAY, 1);
         } else {
             addSocketOption(IPPROTO_TCP, TCP_NODELAY, 0);
         }
 
-        disableNagleAlgorithmOpt //
-            ->default_val(disableNagleAlgorithm ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(disableNagleAlgorithmOpt, disableNagleAlgorithm ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getDisableNagleAlgorithm() const {

@@ -61,7 +61,7 @@ namespace core::socket::stream {
 
     SocketConnection::SocketConnection(int fd, const net::config::ConfigInstance* config)
         : instanceName(config->getInstanceName())
-        , connectionName("[" + std::to_string(fd) + "]" + (!instanceName.empty() ? " " : "") + instanceName)
+        , connectionName("[" + std::to_string(fd) + "]" + (!instanceName.empty() ? " " + instanceName : ""))
         , onlineSinceTimePoint(std::chrono::system_clock::now())
         , config(config) {
     }
@@ -131,7 +131,7 @@ namespace core::socket::stream {
 
     std::string SocketConnection::timePointToString(const std::chrono::time_point<std::chrono::system_clock>& timePoint) {
         const std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
-        std::tm* tm_ptr = std::gmtime(&time);
+        const std::tm* tm_ptr = std::gmtime(&time);
 
         char buffer[100];
         std::string onlineSince = "Formatting error";

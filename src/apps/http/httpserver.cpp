@@ -39,9 +39,9 @@
  * THE SOFTWARE.
  */
 
+#include "ConfigWWW.h"
 #include "apps/http/model/servers.h"
 #include "express/middleware/StaticMiddleware.h"
-#include "net/config/ConfigSection.hpp"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -66,13 +66,11 @@ int main(int argc, char* argv[]) {
 
     const WebApp webApp(apps::http::STREAM::getWebApp("httpserver"));
 
-    net::config::ConfigSection configWeb = net::config::ConfigSection(&webApp.getConfig(), "www", "Web behavior of httpserver");
-    CLI::Option* htmlRoot = configWeb.addOption("--html-root", "HTML root directory", "path", "");
-    configWeb.required(htmlRoot);
+    webApp.getConfig()->Instance::newSubCommand<subcommand::ConfigWWW>();
 
     WebApp::init(argc, argv);
 
-    webApp.use(express::middleware::StaticMiddleware(htmlRoot->as<std::string>()));
+    webApp.use(express::middleware::StaticMiddleware(webApp.getConfig()->Instance::getSubCommand<subcommand::ConfigWWW>()->getHtmlRoot()));
 
     {
 #if (STREAM_TYPE == TLS)
@@ -84,7 +82,7 @@ int main(int argc, char* argv[]) {
             {"snodec.home.vchrist.at", {{"Cert", cert}, {"CertKey", key}, {"CertKeyPassword", pass}}},
             {"www.vchrist.at", {{"Cert", cert}, {"CertKey", key}, {"CertKeyPassword", pass}}}};
 
-        webApp.getConfig().addSniCerts(sniCerts);
+//        webApp.getConfig()->addSniCerts(sniCerts);
 #endif
 
         VLOG(1) << "Routes:";
@@ -94,8 +92,8 @@ int main(int argc, char* argv[]) {
             VLOG(1) << "  " << route;
         }
 
-        webApp.listen([instanceName = webApp.getConfig().getInstanceName()](const core::socket::SocketAddress& socketAddress,
-                                                                            const core::socket::State& state) {
+        webApp.listen([instanceName = webApp.getConfig()->getInstanceName()](const core::socket::SocketAddress& socketAddress,
+                                                                             const core::socket::State& state) {
             switch (state) {
                 case core::socket::State::OK:
                     VLOG(1) << instanceName << ": listening on '" << socketAddress.toString() << "'";
@@ -112,6 +110,7 @@ int main(int argc, char* argv[]) {
             }
         });
     }
+
     return WebApp::start();
 }
 

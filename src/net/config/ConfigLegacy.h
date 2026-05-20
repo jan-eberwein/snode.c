@@ -42,7 +42,7 @@
 #ifndef NET_CONFIG_CONFIGLEGACY_H
 #define NET_CONFIG_CONFIGLEGACY_H
 
-#include "net/config/ConfigSection.h"
+#include "net/config/ConfigSection.h" // IWYU pragma: export
 
 namespace net::config {
     class ConfigInstance;
@@ -50,16 +50,21 @@ namespace net::config {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include <string_view>
+
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::config {
 
-    class ConfigLegacy : protected ConfigSection {
+    class ConfigLegacy : public ConfigSection {
     public:
-        using Legacy = ConfigLegacy;
+        constexpr static std::string_view NAME{"legacy"};
+        constexpr static std::string_view DESCRIPTION{"Configuration of legacy behavior"};
 
     protected:
         explicit ConfigLegacy(ConfigInstance* instance);
+
+        ~ConfigLegacy() override;
     };
 
 } // namespace net::config

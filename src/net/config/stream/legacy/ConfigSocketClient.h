@@ -42,8 +42,8 @@
 #ifndef NET_CONFIG_STREAM_LEGACY_CONFIGSOCKETCLIENT_H
 #define NET_CONFIG_STREAM_LEGACY_CONFIGSOCKETCLIENT_H
 
-#include "net/config/ConfigInstance.h" // IWYU pragma: export
-#include "net/config/ConfigLegacy.h"   // IWYU pragma: export
+#include "net/config/ConfigInstance.h"
+#include "net/config/ConfigLegacy.h" // IWYU pragma: export
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -56,6 +56,10 @@ namespace net::config::stream::legacy {
         : public net::config::ConfigInstance
         , public ConfigSocketClientBaseT
         , public net::config::ConfigLegacy {
+    public:
+        using Instance = net::config::ConfigInstance;
+        using Legacy = net::config::ConfigLegacy;
+
     protected:
         explicit ConfigSocketClient(const std::string& name);
     };

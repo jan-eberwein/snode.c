@@ -45,6 +45,7 @@
 #include "net/config/ConfigAddressLocal.h"
 #include "net/config/ConfigAddressRemote.h"
 #include "net/config/ConfigAddressReverse.h"
+#include "net/config/ConfigSection.h"
 #include "net/rc/SocketAddress.h"
 
 namespace net::config {
@@ -54,52 +55,53 @@ namespace net::config {
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include <cstdint>
-#include <string>
-
-namespace CLI {
-    class Option;
-} // namespace CLI
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::rc::config {
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
-    class ConfigAddressReverse : public ConfigAddressTypeT<net::rc::SocketAddress> {
+    class ConfigAddressReverse
+        : public net::config::ConfigSection
+        , public ConfigAddressTypeT<net::rc::SocketAddress> {
     private:
         using Super = ConfigAddressTypeT<SocketAddress>;
 
     protected:
-        using Super::Super;
+        ConfigAddressReverse(net::config::ConfigInstance* instance,
+                             const std::string& addressOptionName,
+                             const std::string& addressOptionDescription);
     };
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
-    class ConfigAddress : public ConfigAddressTypeT<net::rc::SocketAddress> {
+    class ConfigAddress
+        : public net::config::ConfigSection
+        , public ConfigAddressTypeT<net::rc::SocketAddress> {
     private:
         using Super = ConfigAddressTypeT<net::rc::SocketAddress>;
 
     protected:
-        explicit ConfigAddress(net::config::ConfigInstance* instance,
-                               const std::string& addressOptionName,
-                               const std::string& addressOptionDescription);
+        ConfigAddress(net::config::ConfigInstance* instance,
+                      const std::string& addressOptionName,
+                      const std::string& addressOptionDescription);
 
     private:
         SocketAddress* init() final;
 
     public:
-        ConfigAddress& setSocketAddress(const SocketAddress& socketAddress);
+        ConfigAddress* setSocketAddress(const SocketAddress& socketAddress);
 
-        ConfigAddress& setBtAddress(const std::string& btAddress);
+        ConfigAddress* setBtAddress(const std::string& btAddress);
         std::string getBtAddress() const;
 
-        ConfigAddress& setChannel(uint8_t channel);
+        ConfigAddress* setChannel(uint8_t channel);
         uint8_t getChannel() const;
 
         void configurable(bool configurable = true) final;
 
     protected:
-        ConfigAddress& setBtAddressRequired(bool required = true);
-        ConfigAddress& setChannelRequired(bool required = true);
+        ConfigAddress* setBtAddressRequired(bool required = true);
+        ConfigAddress* setChannelRequired(bool required = true);
 
         CLI::Option* btAddressOpt = nullptr;
         CLI::Option* channelOpt = nullptr;

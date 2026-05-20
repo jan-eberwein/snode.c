@@ -51,10 +51,6 @@ namespace net::config {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-namespace CLI {
-    class Option;
-}
-
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::in6::stream::config {
@@ -66,7 +62,7 @@ namespace net::in6::stream::config {
         ~ConfigSocketClient() override;
 
     public:
-        ConfigSocketClient& setDisableNagleAlgorithm(bool disableNagleAlgorithm = true);
+        ConfigSocketClient* setDisableNagleAlgorithm(bool disableNagleAlgorithm = true);
         bool getDisableNagleAlgorithm() const;
 
     private:

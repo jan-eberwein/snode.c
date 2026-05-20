@@ -82,10 +82,6 @@ namespace express {
         RootRoute() = default;
 
     private:
-        bool setStrictRouting(bool strictRouting);
-        bool setCaseInsensitiveRouting(bool caseInsensitiveRouting);
-        bool setMergeParams(bool mergeParams);
-
         void dispatch(Controller&& controller);
         void dispatch(Controller& controller);
 
@@ -93,6 +89,15 @@ namespace express {
         std::list<Route>& routes() const;
 
         std::list<std::string> getRoutes() const;
+
+        RootRoute& setStrictRouting(bool strictRouting);
+        bool getStrictRouting() const;
+
+        RootRoute& setCaseInsensitiveRouting(bool caseInsensitiveRouting);
+        bool getCaseInsensitiveRouting() const;
+
+        RootRoute& setMergeParams(bool mergeParams);
+        bool getMergeParams() const;
 
     public:
         DECLARE_ROOTROUTE_REQUESTMETHOD(use)

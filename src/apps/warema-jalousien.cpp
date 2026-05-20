@@ -46,7 +46,6 @@
 #include "log/Logger.h"
 
 #include <cstdlib>
-#include <string>
 #include <utility>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
@@ -100,8 +99,8 @@ int main(int argc, char* argv[]) {
     });
 
     webApp.listen(8080,
-                  [instanceName = webApp.getConfig().getInstanceName()](const legacy::in::WebApp::SocketAddress& socketAddress,
-                                                                        const core::socket::State& state) {
+                  [instanceName = webApp.getConfig()->getInstanceName()](const legacy::in::WebApp::SocketAddress& socketAddress,
+                                                                         const core::socket::State& state) {
                       switch (state) {
                           case core::socket::State::OK:
                               VLOG(1) << instanceName << ": listening on '" << socketAddress.toString() << "'";

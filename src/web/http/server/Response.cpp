@@ -46,7 +46,6 @@
 #include "core/socket/stream/SocketConnection.h"
 #include "web/http/MimeTypes.h"
 #include "web/http/StatusCodes.h"
-#include "web/http/http_utils.h"
 #include "web/http/server/SocketContextUpgradeFactorySelector.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
@@ -250,7 +249,7 @@ namespace web::http::server {
         if (isConnected()) {
             const std::string connectionName = socketContext->getSocketConnection()->getConnectionName();
 
-            std::string name;
+            std::string socketContextUpgradeName;
 
             if (request != nullptr) {
                 LOG(DEBUG) << connectionName << " HTTP: Initiating upgrade: " << request->method << " " << request->url
@@ -268,15 +267,17 @@ namespace web::http::server {
                         SocketContextUpgradeFactorySelector::instance()->select(*request, *this);
 
                     if (socketContextUpgradeFactory != nullptr) {
-                        name = socketContextUpgradeFactory->name();
+                        socketContextUpgradeName = socketContextUpgradeFactory->name();
 
-                        LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgradeFactory create success for: " << name;
+                        LOG(DEBUG) << connectionName
+                                   << " HTTP upgrade: SocketContextUpgradeFactory create success for: " << socketContextUpgradeName;
 
                         core::socket::stream::SocketContext* socketContextUpgrade =
                             socketContextUpgradeFactory->create(socketContext->getSocketConnection());
 
                         if (socketContextUpgrade != nullptr) {
-                            LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgrade create success for: " << name;
+                            LOG(DEBUG) << connectionName
+                                       << " HTTP upgrade: SocketContextUpgrade create success for: " << socketContextUpgradeName;
 
                             LOG(DEBUG) << connectionName << " HTTP upgrade: Response to upgrade request: " << request->method << " "
                                        << request->url << " " << "HTTP/" << request->httpMajor << "." << request->httpMinor << "\n"
@@ -289,7 +290,8 @@ namespace web::http::server {
 
                             socketContext->getSocketConnection()->setSocketContext(socketContextUpgrade);
                         } else {
-                            LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgrade create failed for: " << name;
+                            LOG(DEBUG) << connectionName
+                                       << " HTTP upgrade: SocketContextUpgrade create failed for: " << socketContextUpgradeName;
 
                             set("Connection", "close").status(404);
                         }
@@ -310,13 +312,13 @@ namespace web::http::server {
                 set("Connection", "close").status(500);
             }
 
-            LOG(DEBUG) << connectionName << " HTTP: Upgrade bootstrap " << (!name.empty() ? "success" : "failed");
-            LOG(DEBUG) << "      Protocol selected: " << name;
+            LOG(DEBUG) << connectionName << " HTTP: Upgrade bootstrap " << (!socketContextUpgradeName.empty() ? "success" : "failed");
+            LOG(DEBUG) << "      Protocol selected: " << socketContextUpgradeName;
             LOG(DEBUG) << "              requested: " << request->get("upgrade");
-            LOG(DEBUG) << "  Subprotocol  selected: " << header("upgrade");
+            LOG(DEBUG) << "  Subprotocol  selected: " << header("Sec-WebSocket-Protocol");
             LOG(DEBUG) << "              requested: " << request->get("Sec-WebSocket-Protocol");
 
-            status(name);
+            status(socketContextUpgradeName);
         } else {
             LOG(ERROR) << "HTTP upgrade: Unexpected disconnect";
         }
@@ -332,8 +334,6 @@ namespace web::http::server {
 
                 if (std::filesystem::is_regular_file(absolutFileName, ec) && !ec) {
                     core::file::FileReader::open(absolutFileName, [this, &absolutFileName, &onStatus](int fd) {
-                        onStatus(errno);
-
                         if (fd >= 0) {
                             status(200);
                             set("Content-Type", web::http::MimeTypes::contentType(absolutFileName), false);
@@ -345,9 +345,11 @@ namespace web::http::server {
                                     set("Content-Length", std::to_string(std::filesystem::file_size(absolutFileName)));
                                 }
                             }
+
                         } else {
                             status(404);
                         }
+                        onStatus(errno);
                     })->pipe(this);
                 } else {
                     status(404);
@@ -380,7 +382,7 @@ namespace web::http::server {
                                                     .append("\r\n"));
             socketContext->sendToPeer("Date: " + httputils::to_http_date() + "\r\n");
 
-            set("X-Powered-By", "snode.c");
+            set("X-Powered-By", "SNode.C");
 
             for (const auto& [field, value] : headers) {
                 socketContext->sendToPeer(std::string(field).append(": ").append(value).append("\r\n"));

@@ -61,8 +61,6 @@ namespace web::websocket {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#include "log/Logger.h"
-
 #include <cstdint>
 #if defined(__linux__)
 #include <endian.h>

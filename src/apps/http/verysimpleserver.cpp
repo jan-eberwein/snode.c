@@ -39,6 +39,7 @@
  * THE SOFTWARE.
  */
 
+#include "ConfigWWW.h"
 #include "express/legacy/in/WebApp.h"
 #include "express/middleware/StaticMiddleware.h"
 #include "express/tls/in/WebApp.h"
@@ -48,12 +49,10 @@
 
 #include "log/Logger.h"
 
-#include <string>
-
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 int main(int argc, char* argv[]) {
-    utils::Config::addStringOption("--web-root", "Root directory of the web site", "[path]");
+    utils::Config::configRoot.newSubCommand<subcommand::ConfigWWW>();
 
     express::WebApp::init(argc, argv);
 
@@ -61,13 +60,13 @@ int main(int argc, char* argv[]) {
     using LegacySocketAddress = LegacyWebApp::SocketAddress;
 
     const LegacyWebApp legacyApp;
-    legacyApp.getConfig().setReuseAddress();
+    legacyApp.use(express::middleware::StaticMiddleware(utils::Config::configRoot.getSubCommand<subcommand::ConfigWWW>()->getHtmlRoot()));
 
-    legacyApp.use(express::middleware::StaticMiddleware(utils::Config::getStringOptionValue("--web-root")));
+    legacyApp.getConfig()->setReuseAddress();
 
     legacyApp.listen(8080,
-                     [instanceName = legacyApp.getConfig().getInstanceName()](const LegacySocketAddress& socketAddress,
-                                                                              const core::socket::State& state) {
+                     [instanceName = legacyApp.getConfig()->getInstanceName()](const LegacySocketAddress& socketAddress,
+                                                                               const core::socket::State& state) {
                          switch (state) {
                              case core::socket::State::OK:
                                  VLOG(1) << instanceName << " listening on '" << socketAddress.toString() << "'";
@@ -88,17 +87,18 @@ int main(int argc, char* argv[]) {
     using TLSSocketAddress = TLSWebApp::SocketAddress;
 
     const TLSWebApp tlsApp;
-    tlsApp.getConfig().setReuseAddress();
 
-    tlsApp.getConfig().setCert("/home/voc/projects/snodec/snode.c/certs/wildcard.home.vchrist.at_-_snode.c_-_server.pem");
-    tlsApp.getConfig().setCertKey("/home/voc/projects/snodec/snode.c/certs/Volker_Christian_-_Web_-_snode.c_-_server.key.encrypted.pem");
-    tlsApp.getConfig().setCertKeyPassword("snode.c");
+    tlsApp.getConfig()->setCert("/home/voc/projects/snodec/snode.c/certs/wildcard.home.vchrist.at_-_snode.c_-_server.pem");
+    tlsApp.getConfig()->setCertKey("/home/voc/projects/snodec/snode.c/certs/Volker_Christian_-_Web_-_snode.c_-_server.key.encrypted.pem");
+    tlsApp.getConfig()->setCertKeyPassword("snode.c");
 
-    tlsApp.use(express::middleware::StaticMiddleware(utils::Config::getStringOptionValue("--web-root")));
+    tlsApp.use(express::middleware::StaticMiddleware(utils::Config::configRoot.getSubCommand<subcommand::ConfigWWW>()->getHtmlRoot()));
+
+    tlsApp.getConfig()->setReuseAddress();
 
     tlsApp.listen(
         8088,
-        [instanceName = legacyApp.getConfig().getInstanceName()](const TLSSocketAddress& socketAddress, const core::socket::State& state) {
+        [instanceName = legacyApp.getConfig()->getInstanceName()](const TLSSocketAddress& socketAddress, const core::socket::State& state) {
             switch (state) {
                 case core::socket::State::OK:
                     VLOG(1) << instanceName << " listening on '" << socketAddress.toString() << "'";

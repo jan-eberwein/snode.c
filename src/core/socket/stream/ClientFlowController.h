@@ -39,72 +39,70 @@
  * THE SOFTWARE.
  */
 
-#include "core/socket/stream/AutoConnectControl.h"
+#ifndef CORE_SOCKET_STREAM_CLIENTFLOWCONTROLLER_H
+#define CORE_SOCKET_STREAM_CLIENTFLOWCONTROLLER_H
 
+#include "core/socket/stream/FlowController.h" // IWYU pragma: export
 #include "core/timer/Timer.h"
+
+// IWYU pragma: no_include "core/socket/stream/FlowController.hpp"
+
+namespace core {
+    namespace socket::stream {
+        class SocketContextFactory;
+    }
+    namespace eventreceiver {
+        class ConnectEventReceiver;
+    } // namespace eventreceiver
+} // namespace core
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#endif // DOXYGEN_SHOULD_SKIP_THIS
+#include <functional>
+#include <memory>
+#include <set>
+#include <type_traits>
+
+#endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace core::socket::stream {
 
-    AutoConnectControl::AutoConnectControl() = default;
+    class ClientFlowController : public FlowController<ClientFlowController> {
+    public:
+        ClientFlowController(net::config::ConfigInstance* configInstance);
 
-    AutoConnectControl::~AutoConnectControl() = default;
+        void stopReconnect();
+        bool isReconnectEnabled() const;
 
-    void AutoConnectControl::stopRetry() {
-        retryEnabled = false;
+        ClientFlowController* setOnFlowReconnect(const std::function<void(ClientFlowController*)>& callback);
 
-        cancelRetryTimer();
-    }
+    private:
+        void reportFlowReconnect();
 
-    void AutoConnectControl::stopReconnect() {
-        reconnectEnabled = false;
+        void observeConnectEventReceiver(core::eventreceiver::ConnectEventReceiver* connectEventReceiver);
 
-        cancelReconnectTimer();
-    }
+        void armReconnectTimer(double timeoutSeconds, const std::function<void()>& dispatcher);
 
-    void AutoConnectControl::stopReconnectAndRetry() {
-        retryEnabled = false;
-        reconnectEnabled = false;
+        void terminateAsyncSubFlow() override;
 
-        cancelRetryTimer();
-        cancelReconnectTimer();
-    }
+        void cancelReconnectTimer();
 
-    bool AutoConnectControl::isRetryEnabled() const {
-        return retryEnabled;
-    }
+        bool reconnectEnabled{true};
 
-    bool AutoConnectControl::isReconnectEnabled() const {
-        return reconnectEnabled;
-    }
+        std::set<core::eventreceiver::ConnectEventReceiver*> connectEventReceivers;
 
-    void AutoConnectControl::armRetryTimer(double timeoutSeconds, const std::function<void()>& dispatcher) {
-        if (retryEnabled) {
-            retryTimer = std::make_unique<core::timer::Timer>(core::timer::Timer::singleshotTimer(dispatcher, timeoutSeconds));
-        }
-    }
+        std::unique_ptr<core::timer::Timer> reconnectTimer;
 
-    void AutoConnectControl::armReconnectTimer(double timeoutSeconds, const std::function<void()>& dispatcher) {
-        if (reconnectEnabled) {
-            reconnectTimer = std::make_unique<core::timer::Timer>(core::timer::Timer::singleshotTimer(dispatcher, timeoutSeconds));
-        }
-    }
+        std::function<void(ClientFlowController*)> onFlowReconnectCallback;
 
-    void AutoConnectControl::cancelRetryTimer() {
-        if (retryTimer) {
-            retryTimer->cancel();
-            retryTimer.reset();
-        }
-    }
+        template <typename SocketConnectorT, typename SocketContextFactoryT, typename... Args>
+            requires std::is_base_of_v<core::eventreceiver::ConnectEventReceiver, SocketConnectorT> &&
+                     std::is_base_of_v<core::socket::stream::SocketContextFactory, SocketContextFactoryT>
+        friend class SocketClient;
+    };
 
-    void AutoConnectControl::cancelReconnectTimer() {
-        if (reconnectTimer) {
-            reconnectTimer->cancel();
-            reconnectTimer.reset();
-        }
-    }
+    extern template class FlowController<ClientFlowController>;
 
 } // namespace core::socket::stream
+
+#endif // CORE_SOCKET_STREAM_CLIENTFLOWCONTROLLER_H

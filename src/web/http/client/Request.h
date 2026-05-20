@@ -47,7 +47,6 @@
 #include "web/http/TransferEncoding.h"
 
 namespace web::http::client {
-    class MasterRequest;
     class RequestCommand;
     class Response;
     class SocketContext;
@@ -89,7 +88,7 @@ namespace web::http::client {
 
     class Request {
     public:
-        Request(SocketContext* socketContext, const std::string& host);
+        Request(const std::string& connectionName, const std::string& host);
 
         explicit Request(Request&) = delete;
 
@@ -100,10 +99,7 @@ namespace web::http::client {
         Request& operator=(Request&) = delete;
         Request& operator=(Request&&) noexcept = delete;
 
-        void setMasterRequest(const std::shared_ptr<MasterRequest>& masterRequest);
-        std::shared_ptr<MasterRequest> getMasterRequest() const;
-
-        SocketContext* getSocketContext() const;
+        std::string getConnectionName() const;
 
         Request& host(const std::string& hostFieldValue);
         Request& append(const std::string& field, const std::string& value);
@@ -130,17 +126,14 @@ namespace web::http::client {
         std::size_t count{0};
 
     protected:
-        void upgrade(const std::shared_ptr<Response>& response, const std::function<void(const std::string&)>& status);
-
         std::map<std::string, std::string> queries;
         CiStringMap<std::string> headers;
         CiStringMap<std::string> cookies;
         CiStringMap<std::string> trailer;
 
-        std::size_t contentLength = 0;
+        std::string connectionName;
 
-        std::weak_ptr<MasterRequest> masterRequest;
-        web::http::client::SocketContext* socketContext;
+        std::size_t contentLength = 0;
 
         TransferEncoding transferEncoding = TransferEncoding::HTTP10;
         ConnectionState connectionState = ConnectionState::Default;
@@ -162,7 +155,14 @@ namespace web::http::client {
 
         ~MasterRequest() override;
 
+        void setMasterRequest(const std::shared_ptr<MasterRequest>& masterRequest);
+        std::shared_ptr<MasterRequest> getMasterRequest() const;
+
+        SocketContext* getSocketContext() const;
+
         void init();
+        void disconnect();
+        bool isConnected() const;
 
         bool send(const char* chunk,
                   std::size_t chunkLen,
@@ -225,6 +225,10 @@ namespace web::http::client {
 
         std::function<void(const std::shared_ptr<Request>&, const std::shared_ptr<Response>&)> onResponseReceived;
         std::function<void(const std::shared_ptr<Request>&, const std::string& message)> onResponseParseError;
+
+        web::http::client::SocketContext* socketContext;
+
+        std::weak_ptr<MasterRequest> masterRequest;
 
         friend class SocketContext;
 

@@ -51,25 +51,52 @@
 
 #include "utils/PreserveErrno.h"
 
+#include <regex>
+
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::rc::config {
 
     template <template <typename SocketAddress> typename ConfigAddressType>
+    ConfigAddressReverse<ConfigAddressType>::ConfigAddressReverse(net::config::ConfigInstance* instance,
+                                                                  [[maybe_unused]] const std::string& addressOptionName,
+                                                                  [[maybe_unused]] const std::string& addressOptionDescription)
+        : ConfigSection(instance, this)
+        , ConfigAddressType<net::rc::SocketAddress>(this) {
+    }
+
+    template <template <typename SocketAddress> typename ConfigAddressType>
     ConfigAddress<ConfigAddressType>::ConfigAddress(net::config::ConfigInstance* instance,
-                                                    const std::string& addressOptionName,
-                                                    const std::string& addressOptionDescription)
-        : Super(instance, addressOptionName, addressOptionDescription) {
-        btAddressOpt = Super::addOption( //
+                                                    [[maybe_unused]] const std::string& addressOptionName,
+                                                    [[maybe_unused]] const std::string& addressOptionDescription)
+        : ConfigSection(instance, this)
+        , ConfigAddressType<net::rc::SocketAddress>(this) {
+        btAddressOpt = addOption( //
             "--host",
-            "Bluetooth address",
-            "xx:xx:xx:xx:xx:xx",
+            "Bluetooth address (format 01:23:45:67:89:AB)",
+            "address",
             "00:00:00:00:00:00",
-            CLI::TypeValidator<std::string>());
-        channelOpt = Super::addOption( //
+            CLI::Validator(
+                [](std::string& s) -> std::string {
+                    // Classic 48-bit Bluetooth/MAC style: "01:23:45:67:89:AB"
+                    static const std::regex re(R"(^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$)");
+
+                    if (std::regex_match(s, re)) {
+                        return {}; // OK
+                    }
+
+                    return "Invalid Bluetooth address. Expected format like \"01:23:45:67:89:AB\" "
+                           "(6 hex octets separated by ':').";
+                },
+                "BT_ADDR")
+                .name("BT_ADDR"));
+
+        channelOpt = addOption( //
             "--channel",
             "Channel number",
-            "channel");
+            "channel",
+            "1",
+            CLI::Range(static_cast<uint16_t>(1), static_cast<uint16_t>(30)));
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -81,23 +108,21 @@ namespace net::rc::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setSocketAddress(const SocketAddress& socketAddress) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setSocketAddress(const SocketAddress& socketAddress) {
         setBtAddress(socketAddress.getBtAddress());
         setChannel(socketAddress.getChannel());
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setBtAddress(const std::string& btAddress) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setBtAddress(const std::string& btAddress) {
         const utils::PreserveErrno preserveErrno;
 
-        btAddressOpt //
-            ->default_val(btAddress)
-            ->clear();
-        Super::required(btAddressOpt, false);
+        setDefaultValue(btAddressOpt, btAddress);
+        required(btAddressOpt, false);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -106,15 +131,13 @@ namespace net::rc::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setChannel(uint8_t channel) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setChannel(uint8_t channel) {
         const utils::PreserveErrno preserveErrno;
 
-        channelOpt //
-            ->default_val<int>(channel)
-            ->clear();
-        Super::required(channelOpt, false);
+        setDefaultValue<int>(channelOpt, channel);
+        required(channelOpt, false);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -124,22 +147,22 @@ namespace net::rc::config {
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
     void ConfigAddress<ConfigAddressTypeT>::configurable(bool configurable) {
-        Super::setConfigurable(btAddressOpt, configurable);
-        Super::setConfigurable(channelOpt, configurable);
+        this->setConfigurable(btAddressOpt, configurable);
+        this->setConfigurable(channelOpt, configurable);
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setBtAddressRequired(bool required) {
-        Super::required(btAddressOpt, required);
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setBtAddressRequired(bool required) {
+        this->required(btAddressOpt, required);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setChannelRequired(bool required) {
-        Super::required(channelOpt, required);
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setChannelRequired(bool required) {
+        this->required(channelOpt, required);
 
-        return *this;
+        return this;
     }
 
 } // namespace net::rc::config

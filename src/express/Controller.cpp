@@ -91,11 +91,11 @@ namespace express {
         this->currentRoute = currentRoute;
     }
 
-    const std::shared_ptr<Request>& Controller::getRequest() {
+    const std::shared_ptr<Request>& Controller::getRequest() const {
         return request;
     }
 
-    const std::shared_ptr<Response>& Controller::getResponse() {
+    const std::shared_ptr<Response>& Controller::getResponse() const {
         return response;
     }
 
@@ -119,7 +119,7 @@ namespace express {
         }
     }
 
-    bool Controller::nextRouterCalled() {
+    bool Controller::nextRouterCalled() const {
         const bool breakDispatching = lastRoute == currentRoute && (flags & Controller::NEXT_ROUTER) != 0;
 
         if (breakDispatching) {
@@ -129,7 +129,7 @@ namespace express {
         return breakDispatching;
     }
 
-    bool Controller::dispatchNext(const std::string& parentMountPath) {
+    bool Controller::dispatchNext(bool strictRouting, bool caseInsensitiveRouting, bool mergeParams) {
         bool dispatched = false;
 
         if (((flags & Controller::NEXT) != 0)) {
@@ -138,38 +138,14 @@ namespace express {
                 if ((flags & Controller::NEXT_ROUTE) != 0) {
                     flags &= ~Controller::NEXT_ROUTE;
                 } else if ((flags & Controller::NEXT_ROUTER) == 0) {
-                    dispatched = currentRoute->dispatchNext(*this, parentMountPath);
+                    dispatched = currentRoute->dispatchNext(*this, strictRouting, caseInsensitiveRouting, mergeParams);
                 }
-            } else { // ? Optimization: Dispatch only parent route matched path
-                dispatched = currentRoute->dispatchNext(*this, parentMountPath);
+            } else { // Parent routes rebuild their matched state during async replay before reaching this broad fallback
+                dispatched = currentRoute->dispatchNext(*this, strictRouting, caseInsensitiveRouting, mergeParams);
             }
         }
 
         return dispatched;
-    }
-
-    bool Controller::setStrictRouting(bool strictRouting) {
-        const bool oldStrictRouting = this->strictRouting;
-
-        this->strictRouting = strictRouting;
-
-        return oldStrictRouting;
-    }
-
-    bool Controller::getStrictRouting() const {
-        return strictRouting;
-    }
-
-    bool Controller::setCaseInsensitiveRouting(bool caseInsensitiveRouting) {
-        const bool oldCaseInsensitiveRouting = this->caseInsensitiveRouting;
-
-        this->caseInsensitiveRouting = caseInsensitiveRouting;
-
-        return oldCaseInsensitiveRouting;
-    }
-
-    bool Controller::getCaseInsensitiveRouting() const {
-        return caseInsensitiveRouting;
     }
 
 } // namespace express

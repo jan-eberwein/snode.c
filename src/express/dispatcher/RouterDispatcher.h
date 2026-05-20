@@ -49,7 +49,9 @@
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include <list>
+#include <regex>
 #include <string>
+#include <vector>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -59,21 +61,26 @@ namespace express::dispatcher {
 
     class RouterDispatcher : public express::Dispatcher {
     public:
+        RouterDispatcher& setStrictRouting(bool strictRouting);
+        bool getStrictRouting() const;
+
+        RouterDispatcher& setCaseInsensitiveRouting(bool caseInsensitiveRouting);
+        bool getCaseInsensitiveRouting() const;
+
+        RouterDispatcher& setMergeParams(bool mergeParams);
+        bool getMergeParams() const;
+
         std::list<express::Route>& getRoutes();
 
         std::list<std::string> getRoutes(const std::string& parentMountPath, const MountPoint& mountPoint) const;
 
-        bool setStrictRouting(bool strictRouting);
-        bool getStrictRouting() const;
-
-        bool setCaseInsensitiveRouting(bool caseInsensitiveRouting);
-        bool getCaseInsensitiveRouting() const;
-
-        bool setMergeParams(bool mergeParams);
-        bool getMergeParams() const;
-
     private:
-        bool dispatch(express::Controller& controller, const std::string& parentMountPath, const express::MountPoint& mountPoint) override;
+        bool dispatch(express::Controller& controller,
+                      const express::MountPoint& mountPoint,
+                      bool strictRoutingUnused,
+                      bool caseInsensitiveRoutingUnused,
+                      bool mergeParamsUnused) override;
+
         std::list<std::string>
         getRoutes(const std::string& parentMountPath, const MountPoint& mountPoint, bool strictRouting) const override;
 
@@ -82,6 +89,9 @@ namespace express::dispatcher {
         bool strictRouting = false;
         bool caseInsensitiveRouting = true;
         bool mergeParams = false;
+
+        std::regex regex;
+        std::vector<std::string> names;
     };
 
 } // namespace express::dispatcher

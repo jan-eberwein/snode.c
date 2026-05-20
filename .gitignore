@@ -25,6 +25,7 @@ CMakeFiles/
 /test1-cppcheck-build-dir/
 /test1.cppcheck
 
+
 # ── Documentation build ────────────────────────────────────────────
 /doc/xml/
 /sites/
@@ -62,3 +63,6 @@ totp.key
 
 # ── macOS artifacts ───────────────────────────────────────────────
 .DS_Store
+
+# ── Qt Creator ────────────────────────────────────────────────────
+/.qtcreator/

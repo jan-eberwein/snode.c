@@ -8,7 +8,6 @@
 #include "log/Logger.h"
 
 #include <nlohmann/json.hpp>
-#include <string>
 
 // IWYU pragma: no_include <nlohmann/detail/json_ref.hpp>
 // IWYU pragma: no_include <nlohmann/json_fwd.hpp>
@@ -63,7 +62,7 @@ static void tracePush(const std::shared_ptr<express::Request>& req, const std::s
 static json traceGet(const std::shared_ptr<express::Request>& req) {
     json arr = json::array();
     req->getAttribute<Trace>(
-        [&](Trace& t) {
+        [&](const Trace& t) {
             for (auto const& e : t) {
                 arr.push_back(e);
             }
@@ -201,6 +200,7 @@ int main(int argc, char* argv[]) {
     // Params scoping trace: merge vs no-merge
     auto makeScope = [](bool merge) {
         const Router parent;
+        parent.setMergeParams();
         parent.use([merge](auto const& req, auto const&, auto& next) {
             tracePush(req, merge ? "scopeMerge.parent" : "scopeNoMerge.parent");
             next();

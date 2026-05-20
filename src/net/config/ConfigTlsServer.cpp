@@ -41,82 +41,81 @@
 
 #include "net/config/ConfigTlsServer.h"
 
-#include "net/config/ConfigSection.hpp"
+#include "ConfigTls.hpp"
+
+namespace net::config {
+    class ConfigInstance;
+}
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include <functional>
-#include <memory>
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace net::config {
 
     ConfigTlsServer::ConfigTlsServer(ConfigInstance* instance)
-        : Super(instance) {
-        sniCertsOpt = section //
-                          ->add_option("--sni-cert",
-                                       configuredSniCerts,
-                                       "Server Name Indication (SNI) Certificates:\n"
-                                       "sni = SNI of the virtual server\n"
-                                       "<key> = {\n"
-                                       "  Cert -> value:PEM-FILE                  [\"\"]\n"
-                                       "  CertKey -> value:PEM-FILE               [\"\"]\n"
-                                       "  CertKeyPassword -> value:TEXT           [\"\"]\n"
-                                       "  CaCert -> value:PEM-FILE                [\"\"]\n"
-                                       "  CaCertDir -> value:PEM-CONTAINER-DIR    [\"\"]\n"
-                                       "  CaCertUseDefaultDir -> value:BOOLEAN    [false]\n"
-                                       "  CipherList -> value:CIPHER              [\"\"]\n"
-                                       "  SslOptions -> value:UINT                [0]\n"
-                                       "}") //
-                          ->type_name("sni <key> value [<key> value] ... [%% sni <key> value [<key> value] ...]")
-                          ->default_str("[\"\" \"\" \"\" \"\"]");
-        if (sniCertsOpt->get_configurable()) {
-            sniCertsOpt->group(section->get_formatter()->get_label("Persistent Options"));
-        }
+        : ConfigTls(instance, this) {
+        sniCertsOpt = addOptionVariable("--sni-cert",
+                                        configuredSniCerts,
+                                        "Server Name Indication (SNI) Certificates:\n"
+                                        "sni = SNI of the virtual server\n"
+                                        "<key> = {\n"
+                                        "  Cert -> value:PEM-FILE                  [\"\"]\n"
+                                        "  CertKey -> value:PEM-FILE               [\"\"]\n"
+                                        "  CertKeyPassword -> value:TEXT           [\"\"]\n"
+                                        "  CaCert -> value:PEM-FILE                [\"\"]\n"
+                                        "  CaCertDir -> value:PEM-CONTAINER-DIR    [\"\"]\n"
+                                        "  CaCertUseDefaultDir -> value:BOOLEAN    [false]\n"
+                                        "  CipherList -> value:CIPHER              [\"\"]\n"
+                                        "  SslOptions -> value:UINT                [0]\n"
+                                        "}",
+                                        "sni <key> value [<key> value] ... [%% sni <key> value [<key> value] ...]",
+                                        CLI::TypeValidator<std::string>());
 
         sniCertsOpt->default_function([this]() -> std::string {
             std::string defaultValue;
 
             for (const auto& [domain, sniCertConf] : defaultSniCerts) {
-                defaultValue += (!defaultValue.empty() ? "\"%%\" \"" : "\"") + domain + "\" ";
+                defaultValue += (!defaultValue.empty() ? "%% " : "") + domain + " ";
 
                 for (const auto& [key, value] : sniCertConf) {
-                    defaultValue += "\"" + key + "\" ";
+                    defaultValue += key + " ";
 
                     if (key == "Cert") {
-                        defaultValue += "\"" + std::get<std::string>(value) + "\" ";
+                        defaultValue += std::get<std::string>(value) + " ";
                     } else if (key == "CertKey") {
-                        defaultValue += "\"" + std::get<std::string>(value) + "\" ";
+                        defaultValue += std::get<std::string>(value) + " ";
                     } else if (key == "CertKeyPassword") {
-                        defaultValue += "\"" + std::get<std::string>(value) + "\" ";
+                        defaultValue += std::get<std::string>(value) + " ";
                     } else if (key == "CaCert") {
-                        defaultValue += "\"" + std::get<std::string>(value) + "\" ";
+                        defaultValue += std::get<std::string>(value) + " ";
                     } else if (key == "CaCertDir") {
-                        defaultValue += "\"" + std::get<std::string>(value) + "\" ";
+                        defaultValue += std::get<std::string>(value) + " ";
                     } else if (key == "CaCertUseDefaultDir") {
-                        defaultValue += std::get<bool>(value) ? "\"true\" " : "\"false\" ";
+                        defaultValue += std::get<bool>(value) ? "true " : "false ";
                     } else if (key == "CipherList") {
-                        defaultValue += "\"" + std::get<std::string>(value) + "\" ";
+                        defaultValue += std::get<std::string>(value) + " ";
                     } else if (key == "SslOptions") {
-                        defaultValue += "\"" + std::to_string(std::get<ssl_option_t>(value)) + "\" ";
+                        defaultValue += std::to_string(std::get<ssl_option_t>(value)) + " ";
                     }
                 }
             }
 
             defaultValue.pop_back();
 
-            return "[" + defaultValue + " \"\"]";
+            return "[" + defaultValue + "]";
         });
 
         forceSniOpt = addFlag( //
             "--force-sni{true}",
             "Force using of the Server Name Indication",
-            "bool",
+            "BOOL",
             "false",
             CLI::IsMember({"true", "false"}));
 
-        section->final_callback([this]() {
+        finalCallback([this]() {
             for (auto& [domain, sniMap] : configuredSniCerts) {
                 if (domain.empty()) {
                     sniCertsOpt //
@@ -133,8 +132,7 @@ namespace net::config {
                         key != "CaCertUseDefaultDir" && //
                         key != "CipherList" &&          //
                         key != "SslOptions") {
-                        throw CLI::ConversionError("'" + key + "' of option '--" + section->get_parent()->get_name() + "." +
-                                                       section->get_name() + ".sni-cert'",
+                        throw CLI::ConversionError("'" + key + "' of option '--" + getParent()->getName() + "." + getName() + ".sni-cert'",
                                                    "<key>");
                     }
                 }
@@ -142,35 +140,37 @@ namespace net::config {
         });
     }
 
-    ConfigTlsServer& ConfigTlsServer::setForceSni(bool forceSni) {
-        forceSniOpt //
-            ->default_val(forceSni ? "true" : "false")
-            ->clear();
+    ConfigTlsServer::~ConfigTlsServer() {
+    }
 
-        return *this;
+    ConfigTlsServer* ConfigTlsServer::setForceSni(bool forceSni) {
+        setDefaultValue(forceSniOpt, forceSni ? "true" : "false");
+
+        return this;
     }
 
     bool ConfigTlsServer::getForceSni() const {
         return forceSniOpt->as<bool>();
     }
 
-    ConfigTlsServer& ConfigTlsServer::addSniCerts(
+    ConfigTlsServer* ConfigTlsServer::addSniCerts(
         const std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>>& sniCerts) {
         defaultSniCerts.insert(sniCerts.begin(), sniCerts.end());
         sniCertsOpt->capture_default_str();
 
-        return *this;
+        return this;
     }
 
-    ConfigTlsServer& ConfigTlsServer::addSniCert(const std::string& domain,
+    ConfigTlsServer* ConfigTlsServer::addSniCert(const std::string& domain,
                                                  const std::map<std::string, std::variant<std::string, bool, ssl_option_t>>& sniCert) {
         defaultSniCerts[domain] = sniCert;
         sniCertsOpt->capture_default_str();
 
-        return *this;
+        return this;
     }
 
-    const std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>>& ConfigTlsServer::getSniCerts() {
+    const std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>>&
+    ConfigTlsServer::getSniCerts() const {
         return configuredSniCerts.empty() ? defaultSniCerts : configuredSniCerts;
     }
 

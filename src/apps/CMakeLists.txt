@@ -62,13 +62,12 @@ target_link_libraries(
     express-compat-server PUBLIC core http-server-express net-in-stream-legacy
 )
 set_target_properties(
-    express-compat-server PROPERTIES INSTALL_RPATH
-                                 "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
+    express-compat-server
+    PROPERTIES INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
 )
-install(TARGETS express-compat-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-                                     COMPONENT apps
+install(TARGETS express-compat-server
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT apps
 )
-
 
 add_executable(testpost testpost.cpp)
 target_link_libraries(
@@ -80,19 +79,6 @@ set_target_properties(
 )
 install(TARGETS testpost RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                  COMPONENT apps
-)
-
-add_executable(verysimpleserver verysimpleserver.cpp)
-target_link_libraries(
-    verysimpleserver PRIVATE http-server-express net-in-stream-legacy
-                             net-in-stream-tls
-)
-set_target_properties(
-    verysimpleserver PROPERTIES INSTALL_RPATH
-                                "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
-)
-install(TARGETS verysimpleserver RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-                                         COMPONENT apps
 )
 
 if(NLOHMANN_JSON_FOUND)
@@ -146,19 +132,6 @@ install(TARGETS warema-jalousien RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                          COMPONENT apps
 )
 
-add_executable(vhostserver vhostserver.cpp)
-target_link_libraries(
-    vhostserver PRIVATE http-server-express net-in6-stream-legacy
-                        net-in6-stream-tls
-)
-set_target_properties(
-    vhostserver PROPERTIES INSTALL_RPATH
-                           "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
-)
-install(TARGETS vhostserver RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-                                    COMPONENT apps
-)
-
 add_executable(testpipe testpipe.cpp)
 target_link_libraries(testpipe PRIVATE core)
 install(TARGETS testpipe RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -169,19 +142,6 @@ add_executable(configtest configtest.cpp)
 target_link_libraries(configtest PRIVATE core)
 install(TARGETS configtest RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                    COMPONENT apps
-)
-
-add_executable(testbasicauthentication testbasicauthentication.cpp)
-target_link_libraries(
-    testbasicauthentication PRIVATE http-server-express net-in6-stream-legacy
-                                    net-in6-stream-tls
-)
-set_target_properties(
-    testbasicauthentication
-    PROPERTIES INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
-)
-install(TARGETS testbasicauthentication
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT apps
 )
 
 macro(subdirlist result curdir)

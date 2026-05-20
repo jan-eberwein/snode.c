@@ -58,7 +58,7 @@ namespace core::socket::stream {
 #include <cstddef>
 #include <functional>
 #include <list>
-#include <memory> // IWYU pragma: export
+#include <memory> // IW YU pragma: export
 #include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
@@ -76,9 +76,9 @@ namespace web::http::server {
         SocketContext(core::socket::stream::SocketConnection* socketConnection,
                       const std::function<void(const std::shared_ptr<Request>&, const std::shared_ptr<Response>&)>& onRequestReady);
 
-        SocketContext* onConnected(std::function<void()> onConnectEventReceiver);
+        SocketContext* setOnConnected(std::function<void()> onConnectEventReceiver);
 
-        SocketContext* onDisconnected(std::function<void()> onDisconnectEventReceiver);
+        SocketContext* setOnDisconnected(std::function<void()> onDisconnectEventReceiver);
 
     private:
         void deliverRequest();

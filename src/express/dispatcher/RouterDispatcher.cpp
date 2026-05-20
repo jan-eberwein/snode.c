@@ -53,6 +53,7 @@
 
 #include "log/Logger.h"
 
+#include <memory>
 #include <unordered_map>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
@@ -63,111 +64,65 @@ namespace express::dispatcher {
         return routes;
     }
 
-    bool RouterDispatcher::setStrictRouting(bool strictRouting) {
-        const bool oldStrictRouting = this->strictRouting;
+    bool RouterDispatcher::dispatch(express::Controller& controller, //
+                                    const express::MountPoint& mountPoint,
+                                    [[maybe_unused]] bool strictRoutingUnused,
+                                    [[maybe_unused]] bool caseInsensitiveRoutingUnused,
+                                    [[maybe_unused]] bool mergeParamsUnused) {
+        LOG(TRACE) << "======================= ROUTER      DISPATCH =======================";
+        LOG(TRACE) << controller.getResponse()->getSocketContext()->getSocketConnection()->getConnectionName();
+        LOG(TRACE) << "          Request Method: " << controller.getRequest()->method;
+        LOG(TRACE) << "             Request Url: " << controller.getRequest()->url;
+        LOG(TRACE) << "            Request Path: " << controller.getRequest()->path;
+        LOG(TRACE) << "       Mountpoint Method: " << mountPoint.method;
+        LOG(TRACE) << "         Mountpoint Path: " << mountPoint.relativeMountPath;
+        LOG(TRACE) << "           StrictRouting: " << this->strictRouting;
+        LOG(TRACE) << "  CaseInsensitiveRouting: " << this->caseInsensitiveRouting;
+        LOG(TRACE) << "             MergeParams: " << this->mergeParams;
 
-        this->strictRouting = strictRouting;
-
-        return oldStrictRouting;
-    }
-
-    bool RouterDispatcher::getStrictRouting() const {
-        return strictRouting;
-    }
-
-    bool RouterDispatcher::setCaseInsensitiveRouting(bool caseInsensitiveRouting) {
-        const bool oldCaseInsensitiveRouting = this->caseInsensitiveRouting;
-
-        this->caseInsensitiveRouting = caseInsensitiveRouting;
-
-        return oldCaseInsensitiveRouting;
-    }
-
-    bool RouterDispatcher::getCaseInsensitiveRouting() const {
-        return caseInsensitiveRouting;
-    }
-
-    bool RouterDispatcher::setMergeParams(bool mergeParams) {
-        const bool oldMergeParams = this->mergeParams;
-        this->mergeParams = mergeParams;
-        return oldMergeParams;
-    }
-
-    bool RouterDispatcher::getMergeParams() const {
-        return mergeParams;
-    }
-
-    bool
-    RouterDispatcher::dispatch(express::Controller& controller, const std::string& parentMountPath, const express::MountPoint& mountPoint) {
         bool dispatched = false;
 
         const bool methodMatchesResult = methodMatches(controller.getRequest()->method, mountPoint.method);
-        if (!methodMatchesResult) {
-            return false;
-        }
 
-        const std::string absoluteMountPath = joinMountPath(parentMountPath, mountPoint.relativeMountPath);
-
-        if ((controller.getFlags() & Controller::NEXT) == 0) {
-            const MountMatchResult match = matchMountPoint(controller, mountPoint.relativeMountPath, mountPoint);
-
-            LOG(TRACE) << controller.getResponse()->getSocketContext()->getSocketConnection()->getConnectionName()
-                       << " HTTP Express: router -> " << (match.requestMatched ? "MATCH" : "NO MATCH");
-            LOG(TRACE) << "           RequestMethod: " << controller.getRequest()->method;
-            LOG(TRACE) << "              RequestUrl: " << controller.getRequest()->url;
-            LOG(TRACE) << "             RequestPath: " << controller.getRequest()->path;
-            LOG(TRACE) << "       Mountpoint Method: " << mountPoint.method;
-            LOG(TRACE) << " Mountpoint RelativePath: " << mountPoint.relativeMountPath;
-            LOG(TRACE) << " Mountpoint AbsolutePath: " << absoluteMountPath;
-            LOG(TRACE) << "           StrictRouting: " << controller.getStrictRouting();
-            LOG(TRACE) << "  CaseInsensitiveRouting: " << controller.getCaseInsensitiveRouting();
-
-            if (match.requestMatched && match.decodeError) {
-                controller.getResponse()->sendStatus(400);
-                return true;
-            }
+        if (methodMatchesResult) {
+            const MountMatchResult match = matchMountPoint(
+                controller, mountPoint.relativeMountPath, mountPoint, regex, names, this->strictRouting, this->caseInsensitiveRouting);
 
             if (match.requestMatched) {
-                auto& req = *controller.getRequest();
-                req.queries.insert(match.requestQueryPairs.begin(), match.requestQueryPairs.end());
+                LOG(TRACE) << "----------------------- ROUTER         MATCH -----------------------";
 
-                // Express-style mount path stripping is only applied for use()
-                const ScopedPathStrip pathStrip(req, req.url, match.isPrefix, match.consumedLength);
-                const ScopedParams scopedParams(req, match.params, mergeParams);
+                dispatched = true;
 
-                const bool oldStrictRouting = controller.setStrictRouting(strictRouting);
-                const bool oldCaseInsensitiveRouting = controller.setCaseInsensitiveRouting(caseInsensitiveRouting);
+                if (!match.decodeError) {
+                    express::Request& request = *controller.getRequest();
+                    request.queries.insert(match.requestQueryPairs.begin(), match.requestQueryPairs.end());
 
-                for (Route& route : routes) {
-                    dispatched = route.dispatch(controller, absoluteMountPath);
+                    // Express-style mount path stripping is only applied for use()
+                    const ScopedPathStrip pathStrip(request, match.isPrefix, match.consumedLength);
+                    const ScopedParams scopedParams(request, match.params, this->mergeParams);
 
-                    if (dispatched) {
-                        LOG(TRACE) << "Express: R - Dispatched";
-                        break;
+                    for (Route& route : routes) {
+                        dispatched = route.dispatch(controller, this->strictRouting, this->caseInsensitiveRouting, this->mergeParams);
+
+                        if (dispatched || controller.nextRouterCalled()) {
+                            break;
+                        }
                     }
-                    if (controller.nextRouterCalled()) {
-                        LOG(TRACE) << "Express: R - NextRouter called - breaking dispatching";
-                        break;
-                    }
+                } else {
+                    controller.getResponse()->sendStatus(400);
                 }
-
-                controller.setCaseInsensitiveRouting(oldCaseInsensitiveRouting);
-                controller.setStrictRouting(oldStrictRouting);
+            } else {
+                LOG(TRACE) << "----------------------- ROUTER       NOMATCH -----------------------";
             }
         } else {
-            LOG(TRACE) << controller.getResponse()->getSocketContext()->getSocketConnection()->getConnectionName()
-                       << " HTTP Express: router -> next(...) called";
-            LOG(TRACE) << "           RequestMethod: " << controller.getRequest()->method;
-            LOG(TRACE) << "              RequestUrl: " << controller.getRequest()->url;
-            LOG(TRACE) << "             RequestPath: " << controller.getRequest()->path;
-            LOG(TRACE) << "       AbsoluteMountPath: " << absoluteMountPath;
+            LOG(TRACE) << "----------------------- ROUTER       NOMATCH -----------------------";
         }
 
         return dispatched;
     }
 
     std::list<std::string> RouterDispatcher::getRoutes(const std::string& parentMountPath, const MountPoint& mountPoint) const {
-        return getRoutes(parentMountPath, mountPoint, strictRouting);
+        return getRoutes(parentMountPath, mountPoint, false);
     }
 
     std::list<std::string>
@@ -175,12 +130,41 @@ namespace express::dispatcher {
         std::list<std::string> collectedRoutes;
 
         for (const Route& route : routes) {
-            collectedRoutes.splice(
-                collectedRoutes.end(),
-                route.getRoute(parentMountPath + "$" + mountPoint.relativeMountPath + "$", this->strictRouting ? true : strictRouting));
+            collectedRoutes.splice(collectedRoutes.end(),
+                                   route.getRoute(parentMountPath + "$" + mountPoint.relativeMountPath + "$", strictRouting));
         }
 
         return collectedRoutes;
+    }
+
+    RouterDispatcher& RouterDispatcher::setStrictRouting(bool strictRouting) {
+        this->strictRouting = strictRouting;
+
+        return *this;
+    }
+
+    bool RouterDispatcher::getStrictRouting() const {
+        return strictRouting;
+    }
+
+    RouterDispatcher& RouterDispatcher::setCaseInsensitiveRouting(bool caseInsensitiveRouting) {
+        this->caseInsensitiveRouting = caseInsensitiveRouting;
+
+        return *this;
+    }
+
+    bool RouterDispatcher::getCaseInsensitiveRouting() const {
+        return caseInsensitiveRouting;
+    }
+
+    RouterDispatcher& RouterDispatcher::setMergeParams(bool mergeParams) {
+        this->mergeParams = mergeParams;
+
+        return *this;
+    }
+
+    bool RouterDispatcher::getMergeParams() const {
+        return mergeParams;
     }
 
 } // namespace express::dispatcher

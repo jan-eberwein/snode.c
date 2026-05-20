@@ -41,8 +41,6 @@
 
 #include "ConfigHTTP.h"
 
-#include "net/config/ConfigSection.hpp"
-
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
@@ -52,32 +50,39 @@
 
 namespace web::http::client {
 
-    ConfigHTTP::ConfigHTTP(net::config::ConfigInstance& configInstance) {
-        hostHeaderOpt = net::config::ConfigSection(&configInstance, "http", "HTTP behavior")
-                            .addOption( //
-                                "--host",
-                                "HTTP request 'Host' header field",
-                                "string");
+    ConfigHTTP::ConfigHTTP(utils::SubCommand* parent)
+        : utils::SubCommand(parent, this, "Applications") {
+        hostHeaderOpt = addOption( //
+            "--host",
+            "HTTP request 'Host' header field",
+            "hostname|IP",
+            CLI::TypeValidator<std::string>());
 
-        pipelinedRequestsOpt = net::config::ConfigSection(&configInstance, "http", "HTTP behavior")
-                                   .addFlag( //
-                                       "--pipelined-requests",
-                                       "Pipelined requests",
-                                       "bool",
-                                       XSTR(HTTP_REQUEST_PIPELINED),
-                                       CLI::IsMember({"true", "false"}));
+        pipelinedRequestsOpt = addFlag( //
+            "--pipelined-requests{true}",
+            "Pipelined requests",
+            "BOOL",
+            XSTR(HTTP_REQUEST_PIPELINED),
+            CLI::IsMember({"true", "false"}));
     }
 
-    void ConfigHTTP::setHostHeader(const std::string& hostHeader) {
-        hostHeaderOpt->default_str(hostHeader);
+    ConfigHTTP::~ConfigHTTP() {
+    }
+
+    ConfigHTTP* ConfigHTTP::setHostHeader(const std::string& hostHeader) {
+        setDefaultValue(hostHeaderOpt, hostHeader);
+
+        return this;
     }
 
     std::string ConfigHTTP::getHostHeader() const {
         return hostHeaderOpt->as<std::string>();
     }
 
-    void ConfigHTTP::setPipelinedRequests(bool pipelinedRequests) {
-        pipelinedRequestsOpt->default_val(pipelinedRequests ? "true" : "false");
+    ConfigHTTP* ConfigHTTP::setPipelinedRequests(bool pipelinedRequests) {
+        setDefaultValue(pipelinedRequestsOpt, pipelinedRequests ? "true" : "false");
+
+        return this;
     }
 
     bool ConfigHTTP::getPipelinedRequests() const {

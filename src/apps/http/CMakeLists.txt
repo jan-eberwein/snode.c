@@ -64,14 +64,8 @@ add_compile_definitions(
 set(HTTPCLIENT_CPP httpclient.cpp)
 set(HTTPCLIENT_H model/clients.h)
 
-set(HTTPCLIENTCLIENTCERT_CPP httpclientclientcert.cpp)
-set(HTTPCLIENTCLIENTCERT_H model/clients.h)
-
-set(HTTPSERVER_CPP httpserver.cpp)
-set(HTTPSERVER_H model/servers.h)
-
-set(HTTPSERVERCLIENTCERT_CPP httpserverclientcert.cpp)
-set(HTTPSERVERCLIENTCERT_H model/servers.h)
+set(HTTPSERVER_CPP httpserver.cpp ConfigWWW.cpp)
+set(HTTPSERVER_H model/servers.h ConfigWWW.h)
 
 set(NETS "in" "in6" "un")
 
@@ -141,52 +135,6 @@ foreach(NET IN LISTS NETS)
         install(TARGETS httpclient-${STREAM}-${NET}
                 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT apps
         )
-
-        if(${STREAM} STREQUAL "tls")
-            add_executable(
-                httpserverclientcert-${STREAM}-${NET}
-                ${HTTPSERVERCLIENTCERT_CPP} ${HTTPSERVERCLIENTCERT_H}
-            )
-            set_target_properties(
-                httpserverclientcert-${STREAM}-${NET}
-                PROPERTIES INSTALL_RPATH
-                           "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
-            )
-            target_link_libraries(
-                httpserverclientcert-${STREAM}-${NET}
-                PUBLIC http-server-express net-${NET}-stream-${STREAM}
-            )
-            target_compile_definitions(
-                httpserverclientcert-${STREAM}-${NET}
-                PRIVATE NET=${NET} NET_TYPE=${NET_TYPE} STREAM=${STREAM}
-                        STREAM_TYPE=${STREAM_TYPE}
-            )
-            install(TARGETS httpserverclientcert-${STREAM}-${NET}
-                    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT apps
-            )
-
-            add_executable(
-                httpclientclientcert-${STREAM}-${NET}
-                ${HTTPCLIENTCLIENTCERT_CPP} ${HTTPCLIENTCLIENTCERT_H}
-            )
-            set_target_properties(
-                httpclientclientcert-${STREAM}-${NET}
-                PROPERTIES INSTALL_RPATH
-                           "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
-            )
-            target_link_libraries(
-                httpclientclientcert-${STREAM}-${NET}
-                PUBLIC http-client net-${NET}-stream-${STREAM}
-            )
-            target_compile_definitions(
-                httpclientclientcert-${STREAM}-${NET}
-                PRIVATE NET=${NET} NET_TYPE=${NET_TYPE} STREAM=${STREAM}
-                        STREAM_TYPE=${STREAM_TYPE}
-            )
-            install(TARGETS httpclientclientcert-${STREAM}-${NET}
-                    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT apps
-            )
-        endif()
     endforeach()
 endforeach()
 
@@ -201,4 +149,58 @@ target_link_libraries(
 )
 install(TARGETS httplowlevelclient RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
                                            COMPONENT apps
+)
+
+add_executable(verysimpleserver verysimpleserver.cpp ConfigWWW.cpp)
+target_link_libraries(
+    verysimpleserver PRIVATE http-server-express net-in-stream-legacy
+                             net-in-stream-tls
+)
+set_target_properties(
+    verysimpleserver PROPERTIES INSTALL_RPATH
+                                "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
+)
+install(TARGETS verysimpleserver RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                                         COMPONENT apps
+)
+
+add_executable(vhostserver vhostserver.cpp ConfigWWW.cpp)
+target_link_libraries(
+    vhostserver PRIVATE http-server-express net-in6-stream-legacy
+                        net-in6-stream-tls
+)
+set_target_properties(
+    vhostserver PROPERTIES INSTALL_RPATH
+                           "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
+)
+install(TARGETS vhostserver RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                                    COMPONENT apps
+)
+
+add_executable(
+    testbasicauthentication testbasicauthentication.cpp ConfigWWW.cpp
+)
+target_link_libraries(
+    testbasicauthentication PRIVATE http-server-express net-in6-stream-legacy
+                                    net-in6-stream-tls
+)
+set_target_properties(
+    testbasicauthentication
+    PROPERTIES INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
+)
+install(TARGETS testbasicauthentication
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT apps
+)
+
+add_executable(testexpressnext testexpressnext.cpp)
+target_link_libraries(
+    testexpressnext PRIVATE http-server-express http-client
+                            net-in-stream-legacy
+)
+set_target_properties(
+    testexpressnext PROPERTIES INSTALL_RPATH
+                               "${CMAKE_INSTALL_RPATH};${HTTP_INSTALL_RPATH}"
+)
+install(TARGETS testexpressnext RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                                        COMPONENT apps
 )

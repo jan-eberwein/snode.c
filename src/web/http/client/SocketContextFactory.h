@@ -43,7 +43,6 @@
 #define WEB_HTTP_CLIENT_SOCKETCONTEXTFACTORY_H
 
 #include "core/socket/stream//SocketContextFactory.h"
-#include "web/http/client/ConfigHTTP.h"
 #include "web/http/client/SocketContext.h" // IWYU pragma: export
 
 namespace net::config {
@@ -53,7 +52,6 @@ namespace net::config {
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include <functional>
-#include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -68,18 +66,13 @@ namespace web::http::client {
                              const std::function<void(const std::shared_ptr<MasterRequest>&)>& onHttpDisconnected,
                              const std::function<net::config::ConfigInstance&()>& getConfigInstance);
 
-        void setHostHeader(const std::string& hostHeader);
-        std::string getHostHeader() const;
-
-        void setPipelinedRequests(bool pipelinedRequests);
-
     private:
         core::socket::stream::SocketContext* create(core::socket::stream::SocketConnection* socketConnection) override;
 
         std::function<void(const std::shared_ptr<MasterRequest>&)> onHttpConnected;
         std::function<void(const std::shared_ptr<MasterRequest>&)> onHttpDisconnected;
 
-        ConfigHTTP configHttp;
+        net::config::ConfigInstance& configInstance;
     };
 
 } // namespace web::http::client

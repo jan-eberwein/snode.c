@@ -39,17 +39,16 @@
  * THE SOFTWARE.
  */
 
+#include "ConfigWWW.h"
 #include "express/legacy/in6/WebApp.h"
 #include "express/middleware/StaticMiddleware.h"
 #include "express/middleware/VHost.h"
 #include "express/tls/in6/WebApp.h"
-#include "utils/Config.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include "log/Logger.h"
-
-#include <string>
+#include "utils/Config.h"
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -64,7 +63,7 @@ Router getRouter(const std::string& webRoot) {
 }
 
 int main(int argc, char* argv[]) {
-    utils::Config::addStringOption("--web-root", "Root directory of the web site", "[path]");
+    utils::Config::configRoot.newSubCommand<subcommand::ConfigWWW>();
 
     WebApp::init(argc, argv);
 
@@ -72,7 +71,7 @@ int main(int argc, char* argv[]) {
         const legacy::in6::WebApp legacyApp("legacy");
 
         const Router& vh1 = middleware::VHost("localhost:8080");
-        vh1.use(middleware::StaticMiddleware(utils::Config::getStringOptionValue("--web-root")));
+        vh1.use(middleware::StaticMiddleware(utils::Config::configRoot.getSubCommand<subcommand::ConfigWWW>()->getHtmlRoot()));
         legacyApp.use(vh1);
 
         const Router& vh2 = middleware::VHost("jupiter.home.vchrist.at");
@@ -118,8 +117,8 @@ int main(int argc, char* argv[]) {
         });
 
         legacyApp.listen(8080,
-                         [instanceName = legacyApp.getConfig().getInstanceName()](const legacy::in6::WebApp::SocketAddress& socketAddress,
-                                                                                  const core::socket::State& state) {
+                         [instanceName = legacyApp.getConfig()->getInstanceName()](const legacy::in6::WebApp::SocketAddress& socketAddress,
+                                                                                   const core::socket::State& state) {
                              switch (state) {
                                  case core::socket::State::OK:
                                      VLOG(1) << instanceName << " listening on '" << socketAddress.toString() << "'";
@@ -141,7 +140,7 @@ int main(int argc, char* argv[]) {
         const express::tls::in6::WebApp tlsApp("tls");
 
         const Router& vh1 = middleware::VHost("localhost:8088");
-        vh1.use(middleware::StaticMiddleware(utils::Config::getStringOptionValue("--web-root")));
+        vh1.use(middleware::StaticMiddleware(utils::Config::configRoot.getSubCommand<subcommand::ConfigWWW>()->getHtmlRoot()));
         tlsApp.use(vh1);
 
         const Router& vh2 = middleware::VHost("atlas.home.vchrist.at:8088");
@@ -187,8 +186,8 @@ int main(int argc, char* argv[]) {
         });
 
         tlsApp.listen(8088,
-                      [instanceName = tlsApp.getConfig().getInstanceName()](const legacy::in6::WebApp::SocketAddress& socketAddress,
-                                                                            const core::socket::State& state) {
+                      [instanceName = tlsApp.getConfig()->getInstanceName()](const legacy::in6::WebApp::SocketAddress& socketAddress,
+                                                                             const core::socket::State& state) {
                           switch (state) {
                               case core::socket::State::OK:
                                   VLOG(1) << instanceName << " listening on '" << socketAddress.toString() << "'";
@@ -205,10 +204,10 @@ int main(int argc, char* argv[]) {
                           }
                       });
 
-        tlsApp.getConfig().setCert("/home/voc/projects/snodec/snode.c/certs/wildcard.home.vchrist.at_-_snode.c_-_server.pem");
-        tlsApp.getConfig().setCertKey(
+        tlsApp.getConfig()->setCert("/home/voc/projects/snodec/snode.c/certs/wildcard.home.vchrist.at_-_snode.c_-_server.pem");
+        tlsApp.getConfig()->setCertKey(
             "/home/voc/projects/snodec/snode.c/certs/Volker_Christian_-_Web_-_snode.c_-_server.key.encrypted.pem");
-        tlsApp.getConfig().setCertKeyPassword("snode.c");
+        tlsApp.getConfig()->setCertKeyPassword("snode.c");
     }
 
     WebApp::start();

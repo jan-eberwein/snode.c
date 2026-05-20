@@ -52,6 +52,10 @@ namespace net::config {
 
     template <typename SocketAddressT>
     class ConfigAddressRemote : public net::config::ConfigAddress<SocketAddressT> {
+    public:
+        constexpr static std::string_view NAME{"remote"};
+        constexpr static std::string_view DESCRIPTION{"Remote side of connection"};
+
     private:
         using Super = net::config::ConfigAddress<SocketAddressT>;
 

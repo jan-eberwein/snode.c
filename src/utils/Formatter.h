@@ -77,6 +77,8 @@ namespace CLI {
 
     class ConfigFormatter : public ConfigBase {
     public:
+        ConfigFormatter();
+
         ~ConfigFormatter() override;
 
     private:
@@ -87,12 +89,14 @@ namespace CLI {
 #ifndef CLI11_ORIGINAL_FORMATTER
 
     public:
+        HelpFormatter();
         ~HelpFormatter() override;
 
     private:
         std::string make_group(std::string group, bool is_positional, std::vector<const Option*> opts) const override;
         std::string make_description(const App* app) const override;
         std::string make_usage(const App* app, std::string name) const override;
+        std::string make_footer(const App* app) const override;
         std::string make_subcommands(const App* app, AppFormatMode mode) const override;
         std::string make_subcommand(const App* sub) const override;
         std::string make_expanded(const App* sub, AppFormatMode mode) const override;

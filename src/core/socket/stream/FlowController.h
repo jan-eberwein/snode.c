@@ -39,80 +39,81 @@
  * THE SOFTWARE.
  */
 
-#ifndef CORE_SOCKET_STREAM_AUTOCONNECTCONTROL_H
-#define CORE_SOCKET_STREAM_AUTOCONNECTCONTROL_H
+#ifndef CORE_SOCKET_STREAM_FLOWCONTROLLER_H
+#define CORE_SOCKET_STREAM_FLOWCONTROLLER_H
 
-namespace core {
-    namespace timer {
-        class Timer;
-    }
+namespace core::timer {
+    class Timer;
+}
 
-    namespace eventreceiver {
-        class AcceptEventReceiver;
-        class ConnectEventReceiver;
-    } // namespace eventreceiver
-
-    namespace socket::stream {
-        class SocketContextFactory;
-    }
-} // namespace core
+namespace net::config {
+    class ConfigInstance; // IWYU pragma: export
+}
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include <cstdint>
 #include <functional>
 #include <memory>
-#include <type_traits>
+#include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace core::socket::stream {
 
-    class AutoConnectControl : public std::enable_shared_from_this<AutoConnectControl> {
+    template <typename ConcreteFlowController>
+    class FlowController {
     public:
-        AutoConnectControl();
+        FlowController(net::config::ConfigInstance* configInstance);
 
-        AutoConnectControl(const AutoConnectControl&) = delete;
-        AutoConnectControl& operator=(const AutoConnectControl&) = delete;
+        FlowController(const FlowController&) = delete;
+        FlowController& operator=(const FlowController&) = delete;
 
-        AutoConnectControl(AutoConnectControl&&) = delete;
-        AutoConnectControl& operator=(AutoConnectControl&&) = delete;
+        FlowController(FlowController&&) = delete;
+        FlowController& operator=(FlowController&&) = delete;
 
-        ~AutoConnectControl();
+        virtual ~FlowController();
+
+        std::string getInstanceName() const;
+
+        uint64_t getId() const;
+
+        bool terminateFlow();
+        bool isTerminated() const;
 
         void stopRetry();
-        void stopReconnect();
-        void stopReconnectAndRetry();
-
         bool isRetryEnabled() const;
-        bool isReconnectEnabled() const;
+
+        ConcreteFlowController* setOnFlowRetry(const std::function<void(ConcreteFlowController*)>& callback);
+        ConcreteFlowController* setOnFlowCompleted(const std::function<void(uint64_t, const std::string&)>& callback);
+        ConcreteFlowController* setOnFlowTerminated(const std::function<void(ConcreteFlowController*)>& callback);
+
+        void startFlow(const std::function<void()>& callback);
+
+    protected:
+        void reportFlowRetry();
+
+        void armRetryTimer(double timeoutSeconds, const std::function<void()>& dispatcher);
+
+        virtual void terminateAsyncSubFlow() = 0;
 
     private:
-        void armRetryTimer(double timeoutSeconds, const std::function<void()>& dispatcher);
-        void armReconnectTimer(double timeoutSeconds, const std::function<void()>& dispatcher);
-
+        uint64_t id{idCounter++};
+        static uint64_t idCounter;
         void cancelRetryTimer();
-        void cancelReconnectTimer();
+        void notifyFlowTerminated();
 
         bool retryEnabled{true};
-        bool reconnectEnabled{true};
+        bool terminated{false};
 
-        bool cancelRetryScheduled{false};
-        bool cancelReconnectScheduled{false};
+        net::config::ConfigInstance* observedConfigInstance;
 
         std::unique_ptr<core::timer::Timer> retryTimer;
-        std::unique_ptr<core::timer::Timer> reconnectTimer;
 
-        template <typename SocketConnectorT, typename SocketContextFactoryT, typename... Args>
-            requires std::is_base_of_v<core::eventreceiver::ConnectEventReceiver, SocketConnectorT> &&
-                     std::is_base_of_v<core::socket::stream::SocketContextFactory, SocketContextFactoryT>
-        friend class SocketClient;
-
-        template <typename SocketAcceptorT, typename SocketContextFactoryT, typename... Args>
-            requires std::is_base_of_v<core::eventreceiver::AcceptEventReceiver, SocketAcceptorT> &&
-                     std::is_base_of_v<core::socket::stream::SocketContextFactory, SocketContextFactoryT>
-        friend class SocketServer;
+        std::function<void(ConcreteFlowController*)> onFlowRetryCallback;
+        std::function<void(ConcreteFlowController*)> onFlowTerminatedCallback;
     };
 
 } // namespace core::socket::stream
 
-#endif // CORE_SOCKET_STREAM_AUTOCONNECTCONTROL_H
+#endif // CORE_SOCKET_STREAM_FLOWCONTROLLER_H

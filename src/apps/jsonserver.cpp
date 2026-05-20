@@ -47,7 +47,6 @@
 #include "log/Logger.h"
 
 #include <nlohmann/json.hpp>
-#include <string>
 
 // IWYU pragma: no_include <nlohmann/json_fwd.hpp>
 
@@ -66,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     legacyApp.listen(
         8080,
-        [instanceName = legacyApp.getConfig().getInstanceName()](const SocketAddress& socketAddress, const core::socket::State& state) {
+        [instanceName = legacyApp.getConfig()->getInstanceName()](const SocketAddress& socketAddress, const core::socket::State& state) {
             switch (state) {
                 case core::socket::State::OK:
                     VLOG(1) << instanceName << ": listening on '" << socketAddress.toString() << "'";

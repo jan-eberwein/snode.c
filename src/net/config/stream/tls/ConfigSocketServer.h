@@ -42,7 +42,7 @@
 #ifndef NET_CONFIG_STREAM_TLS_CONFIGSOCKETSERVER_H
 #define NET_CONFIG_STREAM_TLS_CONFIGSOCKETSERVER_H
 
-#include "net/config/ConfigInstance.h"  // IWYU pragma: export
+#include "net/config/ConfigInstance.h"
 #include "net/config/ConfigTlsServer.h" // IWYU pragma: export
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
@@ -66,6 +66,9 @@ namespace net::config::stream::tls {
         ~ConfigSocketServer() override;
 
     public:
+        using Instance = net::config::ConfigInstance;
+        using Tls = net::config::ConfigTlsServer;
+
         SSL_CTX* getSslCtx();
         SSL_CTX* getSniCtx(const std::string& serverNameIndication);
 

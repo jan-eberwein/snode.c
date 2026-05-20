@@ -44,7 +44,7 @@
 
 // IWYU pragma: always_keep
 
-#include "core/socket/stream/legacy/SocketAcceptor.h"
+#include "core/socket/stream/legacy/SocketAcceptor.h"       // IWYU pragma: export
 #include "core/socket/stream/legacy/SocketConnection.h"     // IWYU pragma: export
 #include "net/l2/stream/SocketServer.h"                     // IWYU pragma: export
 #include "net/l2/stream/legacy/config/ConfigSocketServer.h" // IWYU pragma: export
@@ -73,7 +73,7 @@ namespace net::l2::stream::legacy {
     template <typename SocketContextFactory, typename... SocketContextFactoryArgs>
     SocketServer<SocketContextFactory, SocketContextFactoryArgs...>
     Server(const std::string& instanceName,
-           const std::function<void(typename SocketServer<SocketContextFactory, SocketContextFactoryArgs...>::Config&)>& configurator,
+           const std::function<void(net::l2::stream::legacy::config::ConfigSocketServer*)>& configurator,
            SocketContextFactoryArgs&&... socketContextFactoryArgs) {
         return core::socket::stream::Server<SocketServer<SocketContextFactory, SocketContextFactoryArgs...>>(
             instanceName, configurator, std::forward<SocketContextFactoryArgs>(socketContextFactoryArgs)...);
@@ -82,7 +82,7 @@ namespace net::l2::stream::legacy {
     template <typename SocketContextFactory,
               typename... SocketContextFactoryArgs,
               typename = std::enable_if_t<not std::is_invocable_v<std::tuple_element_t<0, std::tuple<SocketContextFactoryArgs...>>,
-                                                                  typename SocketServer<SocketContextFactory>::Config&>>>
+                                                                  typename SocketServer<SocketContextFactory>::Config*>>>
     SocketServer<SocketContextFactory, SocketContextFactoryArgs...> Server(const std::string& instanceName,
                                                                            SocketContextFactoryArgs&&... socketContextFactoryArgs) {
         return core::socket::stream::Server<SocketServer<SocketContextFactory, SocketContextFactoryArgs...>>(

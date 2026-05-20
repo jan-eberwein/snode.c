@@ -74,20 +74,14 @@ namespace express {
         void setRootRoute(RootRoute* rootRoute);
         void setCurrentRoute(Route* currentRoute);
 
-        const std::shared_ptr<Request>& getRequest();
-        const std::shared_ptr<Response>& getResponse();
+        const std::shared_ptr<Request>& getRequest() const;
+        const std::shared_ptr<Response>& getResponse() const;
 
         int getFlags() const;
 
         void next(const std::string& how) const;
-        bool nextRouterCalled();
-        bool dispatchNext(const std::string& parentMountPath);
-
-        bool setStrictRouting(bool strictRouting);
-        bool getStrictRouting() const;
-
-        bool setCaseInsensitiveRouting(bool caseInsensitiveRouting);
-        bool getCaseInsensitiveRouting() const;
+        bool nextRouterCalled() const;
+        bool dispatchNext(bool strictRouting, bool caseInsensitiveRouting, bool mergeParams);
 
         enum Flags { NONE = 0, NEXT = 1 << 0, NEXT_ROUTE = 1 << 1, NEXT_ROUTER = 1 << 2 };
 
@@ -99,9 +93,6 @@ namespace express {
 
         mutable Route* lastRoute = nullptr;
         Route* currentRoute = nullptr;
-
-        bool strictRouting = false;
-        bool caseInsensitiveRouting = true;
 
         unsigned long lastTick = 0;
 

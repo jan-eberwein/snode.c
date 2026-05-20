@@ -45,6 +45,7 @@
 #include "net/config/ConfigAddressLocal.h"
 #include "net/config/ConfigAddressRemote.h"
 #include "net/config/ConfigAddressReverse.h"
+#include "net/config/ConfigSection.h"
 #include "net/un/SocketAddress.h"
 
 namespace net::config {
@@ -53,48 +54,48 @@ namespace net::config {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#include <string>
-
-namespace CLI {
-    class Option;
-} // namespace CLI
-
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::un::config {
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
-    class ConfigAddressReverse : public ConfigAddressTypeT<net::un::SocketAddress> {
+    class ConfigAddressReverse
+        : public net::config::ConfigSection
+        , public ConfigAddressTypeT<net::un::SocketAddress> {
     private:
         using Super = ConfigAddressTypeT<SocketAddress>;
 
     protected:
-        using Super::Super;
+        ConfigAddressReverse(net::config::ConfigInstance* instance,
+                             const std::string& addressOptionName,
+                             const std::string& addressOptionDescription);
     };
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
-    class ConfigAddress : public ConfigAddressTypeT<net::un::SocketAddress> {
+    class ConfigAddress
+        : public net::config::ConfigSection
+        , public ConfigAddressTypeT<net::un::SocketAddress> {
     private:
         using Super = ConfigAddressTypeT<net::un::SocketAddress>;
 
     protected:
-        explicit ConfigAddress(net::config::ConfigInstance* instance,
-                               const std::string& addressOptionName,
-                               const std::string& addressOptionDescription);
+        ConfigAddress(net::config::ConfigInstance* instance,
+                      const std::string& addressOptionName,
+                      const std::string& addressOptionDescription);
 
     private:
         SocketAddress* init() final;
 
     public:
-        ConfigAddress& setSocketAddress(const SocketAddress& socketAddress);
+        ConfigAddress* setSocketAddress(const SocketAddress& socketAddress);
 
-        ConfigAddress& setSunPath(const std::string& sunPath);
+        ConfigAddress* setSunPath(const std::string& sunPath);
         std::string getSunPath() const;
 
         void configurable(bool configurable = true) final;
 
     protected:
-        ConfigAddress& sunPathRequired(bool required = true);
+        ConfigAddress* sunPathRequired(bool required = true);
 
     private:
         CLI::Option* sunPathOpt = nullptr;

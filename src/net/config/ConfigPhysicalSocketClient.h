@@ -45,15 +45,13 @@
 #include "net/config/ConfigPhysicalSocket.h" // IWYU pragma: export
 #include "utils/Timeval.h"                   // IWYU pragma: export
 
+// IWYU pragma: no_include "net/config/ConfigPhysicalSocket.hpp"
+
 namespace net::config {
     class ConfigInstance;
 }
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
-
-namespace CLI {
-    class Option;
-}
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
@@ -63,20 +61,19 @@ namespace net::config {
     private:
         using Super = ConfigPhysicalSocket;
 
-    public:
-        using Socket = ConfigPhysicalSocketClient;
-
     protected:
         explicit ConfigPhysicalSocketClient(ConfigInstance* instance);
 
+        ~ConfigPhysicalSocketClient() override;
+
     public:
-        ConfigPhysicalSocketClient& setReconnect(bool reconnect = true);
+        ConfigPhysicalSocketClient* setReconnect(bool reconnect = true);
         bool getReconnect() const;
 
-        ConfigPhysicalSocketClient& setReconnectTime(double time);
+        ConfigPhysicalSocketClient* setReconnectTime(double time);
         double getReconnectTime() const;
 
-        ConfigPhysicalSocketClient& setConnectTimeout(const utils::Timeval& connectTimeout);
+        ConfigPhysicalSocketClient* setConnectTimeout(const utils::Timeval& connectTimeout);
         utils::Timeval getConnectTimeout() const;
 
     private:

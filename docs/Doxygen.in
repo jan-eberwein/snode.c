@@ -1050,8 +1050,8 @@ RECURSIVE              = YES
 # run.
 
 EXCLUDE                = apps/main.cpp \
-                         apps/oauth2/authorization_server/vue-frontend-oauth2-auth-server \
-                         apps/oauth2/client_app/vue-frontend-oauth2-client \
+                         apps/oauth2 \
+                         express/express-compat-suite \
                          utils/CLI11.hpp \
                          ../supplement
 
@@ -1338,7 +1338,7 @@ GENERATE_HTML          = YES
 # The default directory is: html.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_OUTPUT            = html
+HTML_OUTPUT            = html-staging
 
 # The HTML_FILE_EXTENSION tag can be used to specify the file extension for each
 # generated HTML page (for example: .htm, .php, .asp).

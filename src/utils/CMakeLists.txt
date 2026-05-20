@@ -42,10 +42,10 @@ cmake_minimum_required(VERSION 3.18)
 set(UTILS_CPP
     Config.cpp
     Daemon.cpp
-    Exceptions.cpp
     Formatter.cpp
     PreserveErrno.cpp
     Random.cpp
+    SubCommand.cpp
     Timeval.cpp
     Uuid.cpp
     base64.cpp
@@ -60,10 +60,10 @@ set(UTILS_H
     CLI11.hpp
     Config.h
     Daemon.h
-    Exceptions.h
     Formatter.h
     PreserveErrno.h
     Random.h
+    SubCommand.h
     Timeval.h
     Uuid.h
     base64.h
@@ -79,7 +79,7 @@ append_source_file_config(
 )
 
 set_property(
-    SOURCE Config.cpp
+    SOURCE SubCommand.cpp
     APPEND
     PROPERTY COMPILE_DEFINITIONS CLI11_USE_OLD_HELP_PROCESSING
 )

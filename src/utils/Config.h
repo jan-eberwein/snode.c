@@ -42,21 +42,59 @@
 #ifndef UTILS_CONFIG_H
 #define UTILS_CONFIG_H
 
+#include "utils/SubCommand.h"
+
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-namespace CLI {
-    class App;
-    class Option;
-    class Formatter;
-} // namespace CLI
-
-#include <map>
-#include <memory>
+#include <cstddef>
 #include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
+namespace utils::config {} // namespace utils::config
+
 namespace utils {
+
+    class ConfigRoot : public utils::SubCommand {
+    private:
+        ConfigRoot();
+
+    public:
+        void* operator new(std::size_t) = delete;
+
+        ~ConfigRoot() override;
+
+    private:
+        ConfigRoot* addRootOptions(const std::string& applicationName,
+                                   const std::string& userName,
+                                   const std::string& groupName,
+                                   const std::string& configDirectory,
+                                   const std::string& logDirectory,
+                                   const std::string& pidDirectory);
+        bool parse1(int argc, char* argv[]);
+        bool bootstrap(int argc, char* argv[]);
+        bool parse2(int argc, char* argv[], bool parse1 = false);
+        void terminate();
+
+        std::string applicationName;
+        std::string pidDirectory;
+
+        CLI::Option* daemonizeOpt = nullptr;
+        CLI::Option* logFileOpt = nullptr;
+        CLI::Option* monochromLogOpt = nullptr;
+        CLI::Option* userNameOpt = nullptr;
+        CLI::Option* groupNameOpt = nullptr;
+        CLI::Option* enforceLogFileOpt = nullptr;
+        CLI::Option* logLevelOpt = nullptr;
+        CLI::Option* verboseLevelOpt = nullptr;
+        CLI::Option* quietOpt = nullptr;
+        CLI::Option* versionOpt = nullptr;
+        CLI::Option* writeConfigOpt = nullptr;
+        CLI::Option* killOpt = nullptr;
+        CLI::Option* aliasOpt = nullptr;
+
+        friend class Config;
+    };
 
     class Config {
     public:
@@ -68,99 +106,29 @@ namespace utils {
 
         static bool init(int argc, char* argv[]);
         static bool bootstrap();
+        static void parse();
         static void terminate();
 
-        static CLI::App* addInstance(const std::string& name, const std::string& description, const std::string& group, bool final = false);
-        static CLI::App* getInstance(const std::string& name);
-
-        static bool removeInstance(CLI::App* instance);
-
-        static void required(CLI::App* instance, bool required = true);
-        static void disabled(CLI::App* instance, bool disabled = true);
-
-        static CLI::App* addStandardFlags(CLI::App* app);
-        static CLI::App* addSimpleHelp(CLI::App* app);
-        static CLI::App* addHelp(CLI::App* app);
-
-        static std::string getApplicationName();
+        static const std::string& getApplicationName();
         static int getLogLevel();
         static int getVerboseLevel();
 
-        static CLI::Option* addStringOption(const std::string& name, const std::string& description, const std::string& typeName);
-
-        static CLI::Option*
-        addStringOption(const std::string& name, const std::string& description, const std::string& typeName, bool configurable);
-
-        static CLI::Option* addStringOption(const std::string& name,
-                                            const std::string& description,
-                                            const std::string& typeName,
-                                            const std::string& defaultValue);
-
-        static CLI::Option* addStringOption(const std::string& name,
-                                            const std::string& description,
-                                            const std::string& typeName,
-                                            const std::string& defaultValue,
-                                            bool configurable);
-
-        static CLI::Option*
-        addStringOption(const std::string& name, const std::string& description, const std::string& typeName, const char* defaultValue);
-
-        static CLI::Option* addStringOption(const std::string& name,
-                                            const std::string& description,
-                                            const std::string& typeName,
-                                            const char* defaultValue,
-                                            bool configurable);
-
-        static std::string getStringOptionValue(const std::string& name);
-
-        static void addFlag(const std::string& name,
-                            bool& variable,
-                            const std::string& description,
-                            bool required,
-                            bool configurable = true,
-                            const std::string& groupName = "Application Options");
-
-        static std::shared_ptr<CLI::App> app;
+        static ConfigRoot configRoot;
 
     private:
-        static bool parse1();
-
-    public:
-        static bool parse2();
-
-    private:
-        static std::shared_ptr<CLI::Formatter> sectionFormatter;
-
-    public:
         static int argc;
         static char** argv;
 
-    private:
-        static bool subParse;
         static std::string applicationName;
 
         static std::string configDirectory;
         static std::string logDirectory;
         static std::string pidDirectory;
 
-        static CLI::Option* daemonizeOpt;
-        static CLI::Option* logFileOpt;
-        static CLI::Option* userNameOpt;
-        static CLI::Option* groupNameOpt;
-        static CLI::Option* enforceLogFileOpt;
-        static CLI::Option* logLevelOpt;
-        static CLI::Option* verboseLevelOpt;
-        static CLI::Option* quietOpt;
-
-    public:
-        static CLI::App* helpTriggerApp;
-        static CLI::App* showConfigTriggerApp;
-
-    private:
-        static std::map<std::string, std::string> aliases;             // from -> to
-        static std::map<std::string, CLI::Option*> applicationOptions; // keep all user options in memory
+        friend class ConfigRoot;
     };
 
+    //////////////////
 } // namespace utils
 
 #endif // UTILS_CONFIG_H

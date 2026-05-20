@@ -42,7 +42,7 @@
 #ifndef NET_CONFIG_CONFIGPHYSICALSOCKET_H
 #define NET_CONFIG_CONFIGPHYSICALSOCKET_H
 
-#include "net/config/ConfigSection.h"
+#include "net/config/ConfigSection.h"     // IWYU pragma: export
 #include "net/phy/PhysicalSocketOption.h" // IWYU pragma: export
 
 namespace net::config {
@@ -51,50 +51,54 @@ namespace net::config {
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include <cstdint>
 #include <map>
+#include <string_view>
 #include <vector>
-
-namespace CLI {
-    class Option;
-    class Validator;
-} // namespace CLI
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace net::config {
 
-    class ConfigPhysicalSocket : protected ConfigSection {
+    class ConfigPhysicalSocket : public ConfigSection {
+    public:
+        constexpr static std::string_view NAME{"socket"};
+        constexpr static std::string_view DESCRIPTION{"Configuration of socket behavior"};
+
     protected:
-        explicit ConfigPhysicalSocket(ConfigInstance* instance);
+        template <typename ConcretConfigPhysicalSocketT>
+        ConfigPhysicalSocket(ConfigInstance* instance, ConcretConfigPhysicalSocketT* section);
+
+        ~ConfigPhysicalSocket() override;
 
     public:
-        const std::map<int, std::map<int, net::phy::PhysicalSocketOption>>& getSocketOptions();
+        const std::map<int, std::map<int, net::phy::PhysicalSocketOption>>& getSocketOptions() const;
 
-        ConfigPhysicalSocket& addSocketOption(int optLevel, int optName, int optValue);
-        ConfigPhysicalSocket& addSocketOption(int optLevel, int optName, const std::string& optValue);
-        ConfigPhysicalSocket& addSocketOption(int optLevel, int optName, const std::vector<char>& optValue);
+        ConfigPhysicalSocket* addSocketOption(int optLevel, int optName, int optValue);
+        ConfigPhysicalSocket* addSocketOption(int optLevel, int optName, const std::string& optValue);
+        ConfigPhysicalSocket* addSocketOption(int optLevel, int optName, const std::vector<char>& optValue);
 
-        ConfigPhysicalSocket& removeSocketOption(int optLevel, int optName);
+        ConfigPhysicalSocket* removeSocketOption(int optLevel, int optName);
 
-        ConfigPhysicalSocket& setRetry(bool retry = true);
+        ConfigPhysicalSocket* setRetry(bool retry = true);
         bool getRetry() const;
 
-        ConfigPhysicalSocket& setRetryOnFatal(bool retry = true);
+        ConfigPhysicalSocket* setRetryOnFatal(bool retry = true);
         bool getRetryOnFatal() const;
 
-        ConfigPhysicalSocket& setRetryTimeout(double sec);
+        ConfigPhysicalSocket* setRetryTimeout(double sec);
         double getRetryTimeout() const;
 
-        ConfigPhysicalSocket& setRetryTries(unsigned int tries = 0); // 0 ... unlimmit
+        ConfigPhysicalSocket* setRetryTries(unsigned int tries = 0); // 0 ... unlimmit
         unsigned int getRetryTries() const;
 
-        ConfigPhysicalSocket& setRetryBase(double base);
+        ConfigPhysicalSocket* setRetryBase(double base);
         double getRetryBase() const;
 
-        ConfigPhysicalSocket& setRetryLimit(unsigned int limit);
+        ConfigPhysicalSocket* setRetryLimit(unsigned int limit);
         unsigned int getRetryLimit() const;
 
-        ConfigPhysicalSocket& setRetryJitter(double percent);
+        ConfigPhysicalSocket* setRetryJitter(double percent);
         double getRetryJitter() const;
 
     protected:
@@ -107,6 +111,14 @@ namespace net::config {
                                      const CLI::Validator& validator);
 
     private:
+        static const std::string retry;
+        static const std::string retryOnFatal;
+        static float retryTimeout;
+        static uint16_t retryTries;
+        static double retryBase;
+        static float retryJitter;
+        static float retryLimit;
+
         CLI::Option* retryOpt = nullptr;
         CLI::Option* retryOnFatalOpt = nullptr;
         CLI::Option* retryTriesOpt = nullptr;
@@ -116,8 +128,6 @@ namespace net::config {
         CLI::Option* retryJitterOpt = nullptr;
 
         std::map<int, std::map<int, net::phy::PhysicalSocketOption>> socketOptionsMapMap;
-
-        //        std::map<int, const net::phy::PhysicalSocketOption> socketOptionsMap; // key is optName, value is optLevel
     };
 
 } // namespace net::config

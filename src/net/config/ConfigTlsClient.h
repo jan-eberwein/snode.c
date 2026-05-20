@@ -44,6 +44,8 @@
 
 #include "net/config/ConfigTls.h" // IWYU pragma: export
 
+// IWYU pragma: no_include "net/config/ConfigTls.hpp"
+
 namespace net::config {
     class ConfigInstance;
 }
@@ -51,10 +53,6 @@ namespace net::config {
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include <string>
-
-namespace CLI {
-    class Option;
-}
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
@@ -64,14 +62,13 @@ namespace net::config {
     private:
         using Super = ConfigTls;
 
-    public:
-        using Tls = ConfigTlsClient;
-
     protected:
         explicit ConfigTlsClient(ConfigInstance* instance);
 
+        ~ConfigTlsClient() override;
+
     public:
-        ConfigTlsClient& setSni(const std::string& sni);
+        ConfigTlsClient* setSni(const std::string& sni);
         std::string getSni() const;
 
     private:

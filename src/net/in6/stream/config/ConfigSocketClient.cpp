@@ -45,34 +45,11 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
-#ifdef __has_warning
-#if __has_warning("-Wweak-vtables")
-#pragma GCC diagnostic ignored "-Wweak-vtables"
-#endif
-#if __has_warning("-Wcovered-switch-default")
-#pragma GCC diagnostic ignored "-Wcovered-switch-default"
-#endif
-#if __has_warning("-Wmissing-noreturn")
-#pragma GCC diagnostic ignored "-Wmissing-noreturn"
-#endif
-#if __has_warning("-Wnrvo")
-#pragma GCC diagnostic ignored "-Wnrvo"
-#endif
-#endif
-#endif
-#include "utils/CLI11.hpp"
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
 #include "core/system/socket.h"
+#include "utils/PreserveErrno.h"
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -83,43 +60,53 @@ namespace net::in6::stream::config {
 
     ConfigSocketClient::ConfigSocketClient(net::config::ConfigInstance* instance)
         : net::config::stream::ConfigSocketClient<net::in6::config::ConfigAddress>(instance) {
-        net::in6::config::ConfigAddress<net::config::ConfigAddressRemote>::setHostRequired();
-        net::in6::config::ConfigAddress<net::config::ConfigAddressRemote>::setPortRequired();
+        Remote::setHostRequired();
+        Remote::setPortRequired();
+        Remote::setAiSockType(SOCK_STREAM);
+        Remote::setAiProtocol(IPPROTO_TCP);
 
-        net::in6::config::ConfigAddress<net::config::ConfigAddressRemote>::setAiSockType(SOCK_STREAM);
-        net::in6::config::ConfigAddress<net::config::ConfigAddressRemote>::setAiProtocol(IPPROTO_TCP);
-        net::in6::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiSockType(SOCK_STREAM);
-        net::in6::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiProtocol(IPPROTO_TCP);
+        Local::setAiSockType(SOCK_STREAM);
+        Local::setAiProtocol(IPPROTO_TCP);
 
         disableNagleAlgorithmOpt = net::config::ConfigPhysicalSocket::addSocketOption( //
             "--disable-nagle-algorithm{true}",
             IPPROTO_TCP,
             TCP_NODELAY,
             "Turn of Nagle algorithm",
-            "tristat",
+            "TRISTAT",
             XSTR(IN6_CLIENT_DISABLE_NAGLE_ALGORITHM),
             CLI::IsMember({"true", "false", "default"}));
+        if (std::string(XSTR(IN6_SERVER_DISABLE_NAGLE_ALGORITHM)) == "default") {
+            Local::setDefaultValue<std::string>(disableNagleAlgorithmOpt, "false");
+        }
     }
 
     ConfigSocketClient::~ConfigSocketClient() {
     }
 
-    ConfigSocketClient& ConfigSocketClient::setDisableNagleAlgorithm(bool disableNagleAlgorithm) {
+    ConfigSocketClient* ConfigSocketClient::setDisableNagleAlgorithm(bool disableNagleAlgorithm) {
+        const utils::PreserveErrno preserveErrno;
+
         if (disableNagleAlgorithm) {
             addSocketOption(IPPROTO_TCP, TCP_NODELAY, 1);
         } else {
             addSocketOption(IPPROTO_TCP, TCP_NODELAY, 0);
         }
 
-        disableNagleAlgorithmOpt //
-            ->default_val(disableNagleAlgorithm ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(disableNagleAlgorithmOpt, disableNagleAlgorithm ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketClient::getDisableNagleAlgorithm() const {
-        return disableNagleAlgorithmOpt->as<bool>();
+        bool disableNagleAlgorithm = false;
+
+        try {
+            disableNagleAlgorithm = disableNagleAlgorithmOpt->as<bool>();
+        } catch (CLI::RuntimeError&) {
+        }
+
+        return disableNagleAlgorithm;
     }
 
 } // namespace net::in6::stream::config

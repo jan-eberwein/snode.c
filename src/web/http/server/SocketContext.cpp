@@ -92,13 +92,13 @@ namespace web::http::server {
               }) {
     }
 
-    SocketContext* SocketContext::onConnected(std::function<void()> onConnectEventReceiver) {
+    SocketContext* SocketContext::setOnConnected(std::function<void()> onConnectEventReceiver) {
         onConnectEventReceiverList.push_back(std::move(onConnectEventReceiver));
 
         return this;
     }
 
-    SocketContext* SocketContext::onDisconnected(std::function<void()> onDisconnectEventReceiver) {
+    SocketContext* SocketContext::setOnDisconnected(std::function<void()> onDisconnectEventReceiver) {
         onDisconnectEventReceiverList.push_back(std::move(onDisconnectEventReceiver));
 
         return this;
@@ -199,9 +199,13 @@ namespace web::http::server {
             LOG(DEBUG) << getSocketConnection()->getConnectionName() << " HTTP: Connection = Keep-Alive";
 
             if (!pendingRequests.empty()) {
-                core::EventReceiver::atNextTick([this, response = std::weak_ptr<Response>(masterResponse)]() {
+                core::EventReceiver::atNextTick([response = std::weak_ptr<Response>(masterResponse)]() {
                     if (!response.expired()) {
-                        deliverRequest();
+                        SocketContext* socketContext = response.lock()->getSocketContext();
+
+                        if (socketContext != nullptr) {
+                            socketContext->deliverRequest();
+                        }
                     }
                 });
             }
@@ -211,7 +215,7 @@ namespace web::http::server {
     void SocketContext::onConnected() {
         LOG(INFO) << getSocketConnection()->getConnectionName() << " HTTP: Connected";
 
-        for (auto& onConnectEventReceiver : onConnectEventReceiverList) {
+        for (const auto& onConnectEventReceiver : onConnectEventReceiverList) {
             onConnectEventReceiver();
         }
     }
@@ -231,7 +235,7 @@ namespace web::http::server {
 
         LOG(INFO) << getSocketConnection()->getConnectionName() << " HTTP: Received disconnect";
 
-        for (auto& onDisconnectEventReceiver : onDisconnectEventReceiverList) {
+        for (const auto& onDisconnectEventReceiver : onDisconnectEventReceiverList) {
             onDisconnectEventReceiver();
         }
     }

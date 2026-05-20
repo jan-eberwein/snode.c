@@ -41,6 +41,8 @@
 
 #include "net/config/ConfigLegacy.h"
 
+#include "net/config/ConfigSection.hpp"
+
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
@@ -48,7 +50,10 @@
 namespace net::config {
 
     ConfigLegacy::ConfigLegacy(ConfigInstance* instance)
-        : net::config::ConfigSection(instance, "legacy", "Configuration of legacy behavior") {
+        : ConfigSection(instance, this) {
+    }
+
+    ConfigLegacy::~ConfigLegacy() {
     }
 
 } // namespace net::config

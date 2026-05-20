@@ -43,6 +43,8 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include "log/Logger.h"
+
 #include <algorithm>
 #include <functional>
 #include <iomanip>
@@ -53,6 +55,10 @@
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace CLI {
+
+    ConfigFormatter::ConfigFormatter() {
+        arrayDelimiter(' ');
+    }
 
     ConfigFormatter::~ConfigFormatter() {
     }
@@ -90,18 +96,23 @@ namespace CLI {
                         }
                     }
                     const std::string name = prefix + opt->get_single_name();
-                    std::string value =
-                        detail::ini_join(opt->reduced_results(), arraySeparator, arrayStart, arrayEnd, stringQuote, literalQuote);
+                    std::string value;
+                    try {
+                        value = detail::ini_join(opt->reduced_results(), arraySeparator, arrayStart, arrayEnd, stringQuote, literalQuote);
+                    } catch (CLI::ParseError& e) {
+                        value = std::string{"<["} + Color::Code::FG_RED + e.get_name() + Color::Code::FG_DEFAULT + "] " + e.what() + ">";
+                    }
 
                     std::string defaultValue{};
                     if (default_also) {
                         static_assert(std::string::npos + static_cast<std::string::size_type>(1) == 0,
                                       "std::string::npos + static_cast<std::string::size_type>(1) != 0");
-                        if (!value.empty() && detail::convert_arg_for_ini(opt->get_default_str(), stringQuote, literalQuote) == value) {
+                        if (!value.empty() &&
+                            detail::convert_arg_for_ini(opt->get_default_str(), stringQuote, literalQuote, true) == "\"" + value + "\"") {
                             value.clear();
                         }
                         if (!opt->get_default_str().empty()) {
-                            defaultValue = detail::convert_arg_for_ini(opt->get_default_str(), stringQuote, literalQuote);
+                            defaultValue = detail::convert_arg_for_ini(opt->get_default_str(), stringQuote, literalQuote, true);
                             if (defaultValue == "'\"\"'") {
                                 defaultValue = "";
                             }
@@ -119,6 +130,9 @@ namespace CLI {
                         out << commentLead << detail::fix_newlines(commentLead, opt->get_description()) << '\n';
                     }
                     if (default_also && !defaultValue.empty()) {
+                        if (defaultValue == value) {
+                            value.clear();
+                        }
                         out << commentChar << name << valueDelimiter << defaultValue << "\n";
                     }
                     if (!value.empty()) {
@@ -176,6 +190,23 @@ namespace CLI {
     }
 
 #ifndef CLI11_ORIGINAL_FORMATTER
+    HelpFormatter::HelpFormatter() {
+        label("SUBCOMMAND", "SECTION");
+        label("SUBCOMMANDS", "SECTIONS");
+        label("PERSISTENT", "");
+        label("Persistent Options", "Options (persistent)");
+        label("Nonpersistent Options", "Options (nonpersistent)");
+        label("Usage", "\nUsage");
+        label("BOOL:{true,false}", "{true,false}");
+        label("bool:{true,false}", "{true,false}");
+        label("TRISTAT:{true,false,default}", "{true,false,default}");
+        label("MODE:{standard,active,complete,required}", "{standard,active,complete,required}");
+        label("MODE:{standard,exact,expanded}", "{standard,exact,expanded}");
+        label("MODE:{standard,exact}", "{standard,exact}");
+
+        column_width(7);
+    }
+
     HelpFormatter::~HelpFormatter() {
     }
 
@@ -272,9 +303,17 @@ namespace CLI {
             out << " " << get_label("REQUIRED");
         }
 
-        out << std::endl << std::endl;
+        out << std::endl;
 
         return out.str();
+    }
+
+    CLI11_INLINE std::string HelpFormatter::make_footer(const App* app) const {
+        const std::string footer = app->get_footer();
+        if (footer.empty()) {
+            return std::string{"\n"};
+        }
+        return '\n' + footer + "\n\n";
     }
 
     CLI11_INLINE std::string HelpFormatter::make_subcommands(const App* app, AppFormatMode mode) const {
@@ -355,10 +394,10 @@ namespace CLI {
 
     CLI11_INLINE std::string HelpFormatter::make_subcommand(const App* sub) const {
         std::stringstream out;
-        std::string name = "  " + sub->get_display_name(true) + (sub->get_required() ? " " + get_label("REQUIRED") : "");
+        const std::string name = "  " + sub->get_display_name(true) + (sub->get_required() ? " " + get_label("REQUIRED") : "");
 
         out << std::setw(static_cast<int>(column_width_)) << std::left << name;
-        std::string desc = sub->get_description();
+        const std::string desc = sub->get_description();
         if (!desc.empty()) {
             bool skipFirstLinePrefix = true;
             if (out.str().length() >= column_width_) {
@@ -413,8 +452,18 @@ namespace CLI {
                 if (!opt->get_default_str().empty()) {
                     out << " [" << opt->get_default_str() << "]";
                 }
-                if (opt->count() > 0 && opt->get_default_str() != opt->as<std::string>()) {
-                    out << " {" << opt->as<std::string>() << "}";
+                try {
+                    if (opt->count() > 0 && opt->get_default_str() != opt->as<std::string>()) {
+                        out << " {";
+                        std::string completeResult;
+                        for (const auto& result : opt->reduced_results()) {
+                            completeResult += (!result.empty() ? result : "\"\"") + " ";
+                        }
+                        completeResult.pop_back();
+                        out << completeResult << "}";
+                    }
+                } catch (CLI::ParseError& e) {
+                    out << " <[" << Color::Code::FG_RED << e.get_name() << Color::Code::FG_DEFAULT << "] " << e.what() << ">";
                 }
                 if (opt->get_expected_max() == detail::expected_max_vector_size) {
                     out << " ... ";

@@ -39,77 +39,43 @@
  * THE SOFTWARE.
  */
 
-#ifndef CLI_EXCEPTIONS_H
-#define CLI_EXCEPTIONS_H
+#include "core/socket/stream/ServerFlowController.h"
+
+#include "core/eventreceiver/AcceptEventReceiver.h"
+#include "core/socket/stream/FlowController.hpp"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
-#ifdef __has_warning
-#if __has_warning("-Wweak-vtables")
-#pragma GCC diagnostic ignored "-Wweak-vtables"
-#endif
-#if __has_warning("-Wcovered-switch-default")
-#pragma GCC diagnostic ignored "-Wcovered-switch-default"
-#endif
-#if __has_warning("-Wmissing-noreturn")
-#pragma GCC diagnostic ignored "-Wmissing-noreturn"
-#endif
-#if __has_warning("-Wnrvo")
-#pragma GCC diagnostic ignored "-Wnrvo"
-#endif
-#endif
-#endif
-#include "utils/CLI11.hpp"
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
-#include <string>
-
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
-namespace CLI {
+namespace core::socket::stream {
 
-    class CallForCommandline : public CLI::Success {
-    public:
-        enum class Mode { REQUIRED, STANDARD, FULL, DEFAULT };
+    ServerFlowController::ServerFlowController(net::config::ConfigInstance* configInstance)
+        : FlowController(configInstance) {
+    }
 
-        CallForCommandline(CLI::App* app, const std::string& description, Mode mode);
-        ~CallForCommandline() override;
+    void ServerFlowController::observeAcceptEventReceiver(core::eventreceiver::AcceptEventReceiver* acceptEventReceiver) {
+        if (acceptEventReceiver != nullptr) {
+            if (acceptEventReceiver->isEnabled()) {
+                acceptEventReceivers.insert(acceptEventReceiver);
+            } else {
+                acceptEventReceivers.erase(acceptEventReceiver);
+            }
+        }
+    }
 
-        CLI::App* getApp() const;
-        Mode getMode() const;
+    void ServerFlowController::terminateAsyncSubFlow() {
+        stopRetry();
 
-    private:
-        CLI::App* app;
-        Mode mode;
-    };
+        for (core::eventreceiver::AcceptEventReceiver* acceptEventReceiver : acceptEventReceivers) {
+            if (acceptEventReceiver != nullptr) {
+                acceptEventReceiver->stopListen();
+            }
+        }
 
-    class CallForShowConfig : public CLI::Success {
-    public:
-        explicit CallForShowConfig(CLI::App* app);
-        ~CallForShowConfig() override;
+        acceptEventReceivers.clear();
+    }
 
-        CLI::App* getApp() const;
+    template class FlowController<ServerFlowController>;
 
-    private:
-        CLI::App* app;
-    };
-
-    class CallForWriteConfig : public CLI::Success {
-    public:
-        explicit CallForWriteConfig(const std::string& configFile);
-        ~CallForWriteConfig() override;
-
-        std::string getConfigFile() const;
-
-    private:
-        std::string configFile;
-    };
-
-} // namespace CLI
-
-#endif // CLI_EXCEPTIONS_H
+} // namespace core::socket::stream

@@ -44,6 +44,7 @@
 #include "utils/system/signal.h"
 
 #include <cerrno>
+#include <cstring>
 #include <map>
 #include <utility>
 
@@ -68,6 +69,10 @@ namespace utils::system {
             {SIGURG, "URG"},   {SIGVTALRM, "VTALRM"}, {SIGXCPU, "XCPU"}, {SIGXFSZ, "XFSZ"}, {SIGWINCH, "WINCH"}};
 
         return sigMap.contains(sig) ? sigMap[sig] : "UNKNOWN";
+    }
+
+    std::string strsignal(int sig) {
+        return ::strsignal(sig);
     }
 
 } // namespace utils::system

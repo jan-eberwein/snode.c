@@ -70,8 +70,9 @@ namespace express {
 
         virtual ~Dispatcher();
 
-        virtual bool dispatch(Controller& controller, const std::string& parentMountPath, const MountPoint& mountPoint) = 0;
-        bool dispatchNext(Controller& controller, const std::string& parentMountPath);
+        virtual bool dispatch(
+            Controller& controller, const MountPoint& mountPoint, bool strictRouting, bool caseInsensitiveRouting, bool mergeParams) = 0;
+        bool dispatchNext(Controller& controller, bool strictRouting, bool caseInsensitiveRouting, bool mergeParams);
 
         virtual std::list<std::string>
         getRoutes(const std::string& parentMountPath, const MountPoint& mountPoint, bool strictRouting) const = 0;
@@ -79,7 +80,6 @@ namespace express {
     protected:
         std::shared_ptr<Route> nextRoute = nullptr;
 
-    private:
         friend class Route;
     };
 

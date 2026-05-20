@@ -48,7 +48,6 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
-#include <string>
 
 // IWYU pragma: no_include <nlohmann/detail/json_ref.hpp>
 
@@ -59,7 +58,7 @@ using express::Router;
 int main(int argc, char* argv[]) {
     core::SNodeC::init(argc, argv);
 
-    const express::legacy::in::WebApp app("app");
+    const express::legacy::in::WebApp app;
 
     app.use(express::middleware::VerboseRequest());
 
@@ -233,7 +232,8 @@ int main(int argc, char* argv[]) {
     });
 
     app.listen(8080,
-               [instanceName = "app"](const express::legacy::in::WebApp::SocketAddress& socketAddress, const core::socket::State& state) {
+               [instanceName = app.getConfig()->getInstanceName()](const express::legacy::in::WebApp::SocketAddress& socketAddress,
+                                                                   const core::socket::State& state) {
                    switch (state) {
                        case core::socket::State::OK:
                            VLOG(1) << instanceName << " listening on '" << socketAddress.toString() << "'";

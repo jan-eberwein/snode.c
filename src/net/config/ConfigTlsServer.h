@@ -44,6 +44,8 @@
 
 #include "net/config/ConfigTls.h" // IWYU pragma: export
 
+// IWYU pragma: no_include "net/config/ConfigTls.hpp"
+
 namespace net::config {
     class ConfigInstance;
 }
@@ -54,10 +56,6 @@ namespace net::config {
 #include <string>
 #include <variant>
 
-namespace CLI {
-    class Option;
-}
-
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace net::config {
@@ -66,21 +64,20 @@ namespace net::config {
     private:
         using Super = ConfigTls;
 
-    public:
-        using Tls = ConfigTlsServer;
-
     protected:
         explicit ConfigTlsServer(ConfigInstance* instance);
 
+        ~ConfigTlsServer() override;
+
     public:
-        ConfigTlsServer& setForceSni(bool forceSni = true);
+        ConfigTlsServer* setForceSni(bool forceSni = true);
         bool getForceSni() const;
 
-        ConfigTlsServer&
+        ConfigTlsServer*
         addSniCerts(const std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>>& sniCerts);
-        ConfigTlsServer& addSniCert(const std::string& domain,
+        ConfigTlsServer* addSniCert(const std::string& domain,
                                     const std::map<std::string, std::variant<std::string, bool, ssl_option_t>>& sniCert);
-        const std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>>& getSniCerts();
+        const std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>>& getSniCerts() const;
 
     private:
         std::map<std::string, std::map<std::string, std::variant<std::string, bool, ssl_option_t>>> defaultSniCerts;

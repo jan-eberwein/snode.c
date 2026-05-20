@@ -46,8 +46,6 @@
 
 #include "log/Logger.h"
 
-#include <string>
-
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 int main(int argc, char* argv[]) {
@@ -58,7 +56,7 @@ int main(int argc, char* argv[]) {
     const SocketClient client = apps::echo::model::STREAM::getClient();
 
     client.connect(
-        [instanceName = client.getConfig().getInstanceName()](const SocketAddress& socketAddress, const core::socket::State& state) {
+        [instanceName = client.getConfig()->getInstanceName()](const SocketAddress& socketAddress, const core::socket::State& state) {
             switch (state) {
                 case core::socket::State::OK:
                     VLOG(1) << instanceName << ": connected to '" << socketAddress.toString() << "'";

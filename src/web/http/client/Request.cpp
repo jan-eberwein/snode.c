@@ -74,11 +74,11 @@
 
 namespace web::http::client {
 
-    Request::Request(SocketContext* socketContext, const std::string& hostFieldValue)
+    Request::Request(const std::string& connectionName, const std::string& hostFieldValue)
         : hostFieldValue(hostFieldValue)
-        , socketContext(socketContext) {
+        , connectionName(connectionName) {
         host(hostFieldValue);
-        set("X-Powered-By", "snode.c");
+        set("X-Powered-By", "SNode.C");
     }
 
     Request::Request(Request&& request) noexcept
@@ -92,27 +92,34 @@ namespace web::http::client {
         , headers(std::move(request.headers))
         , cookies(std::move(request.cookies))
         , trailer(std::move(request.trailer))
+        , connectionName(request.connectionName)
         , contentLength(request.contentLength)
-        , masterRequest(request.masterRequest) // NOLINT
-        , socketContext(request.socketContext)
         , transferEncoding(request.transferEncoding)
         , connectionState(request.connectionState) {
         request.count++;
 
         host(hostFieldValue);
-        set("X-Powered-By", "snode.c");
+        set("X-Powered-By", "SNode.C");
     }
 
-    void Request::setMasterRequest(const std::shared_ptr<MasterRequest>& masterRequest) {
+    std::string Request::getConnectionName() const {
+        return connectionName;
+    }
+
+    void MasterRequest::setMasterRequest(const std::shared_ptr<MasterRequest>& masterRequest) {
         this->masterRequest = masterRequest;
     }
 
-    std::shared_ptr<MasterRequest> Request::getMasterRequest() const {
+    std::shared_ptr<MasterRequest> MasterRequest::getMasterRequest() const {
         return masterRequest.lock();
     }
 
-    SocketContext* Request::getSocketContext() const {
+    SocketContext* MasterRequest::getSocketContext() const {
         return socketContext;
+    }
+
+    bool MasterRequest::isConnected() const {
+        return socketContext != nullptr;
     }
 
     Request& Request::host(const std::string& hostFieldValue) {
@@ -254,58 +261,9 @@ namespace web::http::client {
         return cookies;
     }
 
-    void Request::upgrade(const std::shared_ptr<Response>& response, const std::function<void(const std::string&)>& status) {
-        const std::string connectionName = socketContext->getSocketConnection()->getConnectionName();
-
-        std::string name;
-
-        if (!masterRequest.expired()) {
-            if (response != nullptr) {
-                if (web::http::ciContains(response->get("connection"), "Upgrade")) {
-                    SocketContextUpgradeFactory* socketContextUpgradeFactory =
-                        SocketContextUpgradeFactorySelector::instance()->select(*this, *response);
-
-                    if (socketContextUpgradeFactory != nullptr) {
-                        name = socketContextUpgradeFactory->name();
-
-                        LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgradeFactory create success for: " << name;
-
-                        core::socket::stream::SocketContext* socketContextUpgrade =
-                            socketContextUpgradeFactory->create(socketContext->getSocketConnection());
-
-                        if (socketContextUpgrade != nullptr) {
-                            LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgrade create success for: " << name;
-                            socketContext->getSocketConnection()->setSocketContext(socketContextUpgrade);
-                        } else {
-                            LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgrade create failed for: " << name;
-
-                            socketContext->close();
-                        }
-                    } else {
-                        LOG(DEBUG) << connectionName
-                                   << " HTTP upgrade: SocketContextUpgradeFactory not supported by server: " << header("upgrade");
-
-                        socketContext->close();
-                    }
-                } else {
-                    LOG(DEBUG) << connectionName << " HTTP upgrade: No upgrade requested";
-
-                    socketContext->close();
-                }
-            } else {
-                LOG(ERROR) << connectionName << " HTTP upgrade: Response has gone away";
-
-                socketContext->close();
-            }
-        } else {
-            LOG(ERROR) << connectionName << " HTTP upgrade: Unexpected disconnect";
-        }
-
-        status(name);
-    }
-
     MasterRequest::MasterRequest(SocketContext* socketContext, const std::string& host)
-        : Request(socketContext, host) {
+        : Request(socketContext->getSocketConnection()->getConnectionName(), host)
+        , socketContext(socketContext) {
         this->init();
     }
 
@@ -314,7 +272,9 @@ namespace web::http::client {
         , requestCommands(std::move(request.requestCommands))
         , contentLengthSent(request.contentLengthSent)
         , onResponseReceived(std::move(request.onResponseReceived))
-        , onResponseParseError(std::move(request.onResponseParseError)) {
+        , onResponseParseError(std::move(request.onResponseParseError))
+        , socketContext(request.socketContext)
+        , masterRequest(request.masterRequest) { // NOLINT
         request.init();
     }
 
@@ -323,7 +283,7 @@ namespace web::http::client {
             delete requestCommand;
         }
 
-        if (!masterRequest.expired() && Sink::isStreaming()) {
+        if (isConnected() && Sink::isStreaming()) {
             socketContext->streamEof();
         }
     }
@@ -344,6 +304,11 @@ namespace web::http::client {
         connectionState = ConnectionState::Default;
     }
 
+    void MasterRequest::disconnect() {
+        stop();
+        socketContext = nullptr;
+    }
+
     bool
     MasterRequest::send(const char* chunk,
                         std::size_t chunkLen,
@@ -351,7 +316,7 @@ namespace web::http::client {
                         const std::function<void(const std::shared_ptr<Request>&, const std::string&)>& onResponseParseError) {
         bool queued = true;
 
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             const std::shared_ptr<MasterRequest> newRequest = std::make_shared<MasterRequest>(std::move(*this));
 
             if (chunkLen > 0) {
@@ -389,19 +354,16 @@ namespace web::http::client {
         const std::function<void(bool)>& onUpgradeInitiate,
         const std::function<void(const std::shared_ptr<Request>&, const std::shared_ptr<Response>&, bool)>& onResponseReceived,
         const std::function<void(const std::shared_ptr<Request>&, const std::string&)>& onResponseParseError) {
-        if (!masterRequest.expired()) {
-            const std::shared_ptr<MasterRequest> newRequest = std::make_shared<MasterRequest>(std::move(*this));
+        if (isConnected()) {
+            masterRequest.lock()->url = url;
 
-            newRequest->url = url;
-
-            newRequest->requestCommands.push_back(new commands::UpgradeCommand(
+            masterRequest.lock()->requestCommands.push_back(new commands::UpgradeCommand(
                 url,
                 protocols,
                 onUpgradeInitiate,
-                [onResponseReceived](const std::shared_ptr<Request>& request, const std::shared_ptr<Response>& response) {
-                    if (request != nullptr) {
-                        const std::string connectionName = request->getSocketContext()->getSocketConnection()->getConnectionName();
-
+                [masterRequest = this->masterRequest, connectionName = this->connectionName, onResponseReceived](
+                    const std::shared_ptr<Request>& request, const std::shared_ptr<Response>& response) {
+                    if (!masterRequest.expired() && masterRequest.lock()->isConnected()) {
                         LOG(DEBUG) << connectionName << " HTTP upgrade: Response to upgrade request: " << request->method << " "
                                    << request->url << " "
                                    << "HTTP/" << request->httpMajor << "." << request->httpMinor << "\n"
@@ -412,30 +374,68 @@ namespace web::http::client {
                                                           response->cookies,
                                                           response->body);
 
-                        request->upgrade(response, [request, response, connectionName, &onResponseReceived](const std::string& name) {
-                            LOG(DEBUG) << connectionName << " HTTP upgrade: bootstrap " << (!name.empty() ? "success" : "failed");
-                            LOG(DEBUG) << "      Protocol selected: " << name;
-                            LOG(DEBUG) << "              requested: " << request->header("upgrade");
-                            LOG(DEBUG) << "  Subprotocol  selected: " << response->get("Sec-WebSocket-Protocol");
-                            LOG(DEBUG) << "              requested: " << request->header("Sec-WebSocket-Protocol");
+                        std::string socketContextUpgradeName;
 
-                            onResponseReceived(request, response, !name.empty());
-                        });
+                        if (web::http::ciContains(response->get("connection"), "Upgrade")) {
+                            SocketContextUpgradeFactory* socketContextUpgradeFactory =
+                                SocketContextUpgradeFactorySelector::instance()->select(*request, *response);
+
+                            if (socketContextUpgradeFactory != nullptr) {
+                                socketContextUpgradeName = socketContextUpgradeFactory->name();
+
+                                LOG(DEBUG) << connectionName
+                                           << " HTTP upgrade: SocketContextUpgradeFactory create success for: " << socketContextUpgradeName;
+
+                                core::socket::stream::SocketContext* socketContextUpgrade =
+                                    socketContextUpgradeFactory->create(masterRequest.lock()->getSocketContext()->getSocketConnection());
+
+                                if (socketContextUpgrade != nullptr) {
+                                    LOG(DEBUG) << connectionName
+                                               << " HTTP upgrade: SocketContextUpgrade create success for: " << socketContextUpgradeName;
+                                    masterRequest.lock()->getSocketContext()->getSocketConnection()->setSocketContext(socketContextUpgrade);
+                                } else {
+                                    LOG(DEBUG) << connectionName
+                                               << " HTTP upgrade: SocketContextUpgrade create failed for: " << socketContextUpgradeName;
+
+                                    masterRequest.lock()->getSocketContext()->close();
+                                }
+                            } else {
+                                LOG(DEBUG) << connectionName << " HTTP upgrade: SocketContextUpgradeFactory not supported by server: "
+                                           << request->header("upgrade");
+
+                                masterRequest.lock()->getSocketContext()->close();
+                            }
+                        } else {
+                            LOG(DEBUG) << connectionName << " HTTP upgrade: No upgrade requested";
+
+                            masterRequest.lock()->getSocketContext()->close();
+                        }
+
+                        LOG(DEBUG) << connectionName << " HTTP upgrade: bootstrap "
+                                   << (!socketContextUpgradeName.empty() ? "success" : "failed");
+                        LOG(DEBUG) << "      Protocol selected: " << socketContextUpgradeName;
+                        LOG(DEBUG) << "              requested: " << request->header("upgrade");
+                        LOG(DEBUG) << "  Subprotocol  selected: " << response->get("Sec-WebSocket-Protocol");
+                        LOG(DEBUG) << "              requested: " << request->header("Sec-WebSocket-Protocol");
+
+                        onResponseReceived(request, response, !socketContextUpgradeName.empty());
                     }
                 },
                 onResponseParseError));
 
+            const std::shared_ptr<MasterRequest> newRequest = std::make_shared<MasterRequest>(std::move(*this));
+
             requestPrepared(newRequest);
         }
 
-        return !masterRequest.expired();
+        return isConnected();
     }
 
     bool MasterRequest::requestEventSource(const std::string& url,
                                            const std::function<std::size_t()>& onServerSentEvent,
                                            const std::function<void()>& onOpen,
                                            const std::function<void()>& onError) {
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             const std::shared_ptr<MasterRequest> newRequest = std::make_shared<MasterRequest>(std::move(*this));
 
             newRequest->url = url;
@@ -451,31 +451,32 @@ namespace web::http::client {
             newRequest->requestCommands.push_back(new commands::SseCommand(
                 [masterRequest = this->masterRequest, onServerSentEvent, onOpen, onError](const std::shared_ptr<Request>& request,
                                                                                           const std::shared_ptr<Response>& response) {
-                    if (!masterRequest.expired()) {
+                    if (!masterRequest.expired() && masterRequest.lock()->isConnected()) {
                         if (web::http::ciContains(response->headers["Content-Type"], "text/event-stream") &&
                             web::http::ciContains(request->header("Accept"), "text/event-stream")) {
                             masterRequest.lock()->getSocketContext()->setSseEventReceiver(onServerSentEvent);
 
-                            const std::string connectionName = request->getSocketContext()->getSocketConnection()->getConnectionName();
                             onOpen();
                         } else {
                             masterRequest.lock()->getSocketContext()->close();
+
                             onError();
                         }
                     }
                 },
-                [masterRequest = this->masterRequest](const std::shared_ptr<Request>& request, const std::string& status) {
-                    if (!masterRequest.expired()) {
-                        LOG(DEBUG) << request->getSocketContext()->getSocketConnection()->getConnectionName()
-                                   << " error in response: " << status;
+                [masterRequest = this->masterRequest, connectionName = this->connectionName, onError](
+                    [[maybe_unused]] const std::shared_ptr<Request>& request, const std::string& status) {
+                    if (!masterRequest.expired() && masterRequest.lock()->isConnected()) {
+                        LOG(DEBUG) << connectionName << " error in response: " << status;
                         masterRequest.lock()->getSocketContext()->close();
+                        onError();
                     }
                 }));
 
             requestPrepared(newRequest);
         }
 
-        return !masterRequest.expired();
+        return isConnected();
     }
 
     bool MasterRequest::sendFile(
@@ -485,7 +486,7 @@ namespace web::http::client {
         const std::function<void(const std::shared_ptr<Request>&, const std::string&)>& onResponseParseError) {
         bool queued = false;
 
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             const std::shared_ptr<MasterRequest> newRequest = std::make_shared<MasterRequest>(std::move(*this));
 
             newRequest->requestCommands.push_back(new commands::SendFileCommand(file, onStatus, onResponseReceived, onResponseParseError));
@@ -499,7 +500,7 @@ namespace web::http::client {
     }
 
     MasterRequest& MasterRequest::sendHeader() {
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             requestCommands.push_back(new commands::SendHeaderCommand());
         }
 
@@ -507,7 +508,7 @@ namespace web::http::client {
     }
 
     MasterRequest& MasterRequest::sendFragment(const char* chunk, std::size_t chunkLen) {
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             contentLength += chunkLen;
 
             requestCommands.push_back(new commands::SendFragmentCommand(chunk, chunkLen));
@@ -525,7 +526,7 @@ namespace web::http::client {
                        const std::function<void(const std::shared_ptr<Request>&, const std::string&)>& onResponseParseError) {
         bool queued = true;
 
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             const std::shared_ptr<MasterRequest> newRequest = std::make_shared<MasterRequest>(std::move(*this));
 
             newRequest->sendHeader();
@@ -608,7 +609,6 @@ namespace web::http::client {
     }
 
     bool MasterRequest::executeUpgrade(const std::string& url, const std::string& protocols, const std::function<void(bool)>& onStatus) {
-        const std::string connectionName = this->getSocketContext()->getSocketConnection()->getConnectionName();
         this->url = url;
 
         set("Connection", "Upgrade", true);
@@ -722,7 +722,7 @@ namespace web::http::client {
     }
 
     void MasterRequest::requestDelivered() {
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             if (transferEncoding == TransferEncoding::Chunked) {
                 executeSendFragment("", 0); // For transfer encoding chunked. Terminate the chunk sequence.
 
@@ -739,7 +739,7 @@ namespace web::http::client {
     }
 
     void MasterRequest::onSourceConnect(core::pipe::Source* source) {
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             if (socketContext->streamToPeer(source)) {
                 source->start();
             }
@@ -749,11 +749,13 @@ namespace web::http::client {
     }
 
     void MasterRequest::onSourceData(const char* chunk, std::size_t chunkLen) {
-        executeSendFragment(chunk, chunkLen);
+        if (isConnected()) {
+            executeSendFragment(chunk, chunkLen);
+        }
     }
 
     void MasterRequest::onSourceEof() {
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             socketContext->streamEof();
 
             requestDelivered();
@@ -763,7 +765,7 @@ namespace web::http::client {
     void MasterRequest::onSourceError(int errnum) {
         errno = errnum;
 
-        if (!masterRequest.expired()) {
+        if (isConnected()) {
             socketContext->streamEof();
             socketContext->close();
 

@@ -42,8 +42,11 @@
 #include "core/socket/stream/SocketConnection.h"
 #include "web/websocket/SocketContextUpgrade.h"
 
+#include <cstring>
+
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
+#include "log/Logger.h"
 #include "utils/hexdump.h"
 
 #include <vector>
@@ -124,8 +127,8 @@ namespace web::websocket {
     }
 
     template <typename SubProtocol, typename Request, typename Response>
-    void SocketContextUpgrade<SubProtocol, Request, Response>::sendFrameChunk(const char* message, std::size_t messageLength) const {
-        Super::sendToPeer(message, messageLength);
+    void SocketContextUpgrade<SubProtocol, Request, Response>::sendFrameChunk(const char* chunk, std::size_t chunkLen) const {
+        Super::sendToPeer(chunk, chunkLen);
     }
 
     template <typename SubProtocol, typename Request, typename Response>

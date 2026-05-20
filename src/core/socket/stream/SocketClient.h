@@ -42,12 +42,11 @@
 #ifndef CORE_SOCKET_STREAM_SOCKETCLIENT_H
 #define CORE_SOCKET_STREAM_SOCKETCLIENT_H
 
+#include "core/EventReceiver.h"
 #include "core/SNodeC.h"
-#include "core/eventreceiver/ConnectEventReceiver.h"
-#include "core/socket/Socket.h" // IWYU pragma: export
-#include "core/socket/State.h"  // IWYU pragma: export
-#include "core/socket/stream/AutoConnectControl.h"
-#include "core/socket/stream/SocketContextFactory.h"
+#include "core/socket/Socket.h"                      // IWYU pragma: export
+#include "core/socket/State.h"                       // IWYU pragma: export
+#include "core/socket/stream/ClientFlowController.h" // IWYU pragma: export
 #include "core/timer/Timer.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
@@ -85,39 +84,26 @@ namespace core::socket::stream {
 
     private:
         struct Context {
-            Context(const std::shared_ptr<SocketContextFactory>& socketContextFactory,
+            Context(Config* config,
+                    const std::shared_ptr<SocketContextFactory>& socketContextFactory,
                     const std::function<void(SocketConnection*)>& onConnect,
                     const std::function<void(SocketConnection*)>& onConnected,
                     const std::function<void(SocketConnection*)>& onDisconnect)
-                : socketContextFactory(socketContextFactory)
+                : flowController(config)
+                , socketContextFactory(socketContextFactory)
                 , onConnect(onConnect)
                 , onConnected(onConnected)
-                , onDisconnect(onDisconnect)
-                , onInitState([]([[maybe_unused]] core::eventreceiver::ConnectEventReceiver* descriptorEventReceiver) {
-                })
-                , onAutoConnectControl([]([[maybe_unused]] const std::shared_ptr<AutoConnectControl>& onAutoConnectControl) {
-                }) {
+                , onDisconnect(onDisconnect) {
             }
+
+            ClientFlowController flowController;
 
             std::shared_ptr<SocketContextFactory> socketContextFactory;
 
             std::function<void(SocketConnection*)> onConnect;
             std::function<void(SocketConnection*)> onConnected;
             std::function<void(SocketConnection*)> onDisconnect;
-            std::function<void(core::eventreceiver::ConnectEventReceiver*)> onInitState;
-
-            std::function<void(const std::shared_ptr<AutoConnectControl>&)> onAutoConnectControl;
-            std::shared_ptr<AutoConnectControl> autoConnectControl;
         };
-
-        SocketClient(const std::shared_ptr<Config>& config,
-                     const std::shared_ptr<SocketContextFactory>& socketContextFactory,
-                     const std::function<void(SocketConnection*)>& onConnect,
-                     const std::function<void(SocketConnection*)>& onConnected,
-                     const std::function<void(SocketConnection*)>& onDisconnect)
-            : Super(config)
-            , sharedContext(std::make_shared<Context>(socketContextFactory, onConnect, onConnected, onDisconnect)) {
-        }
 
         SocketClient(const std::shared_ptr<Config>& config, const std::shared_ptr<Context>& sharedContext)
             : Super(config)
@@ -132,6 +118,7 @@ namespace core::socket::stream {
                      Args&&... args)
             : Super(name)
             , sharedContext(std::make_shared<Context>(
+                  this->config.get(),
                   std::make_shared<SocketContextFactory>(std::forward<Args>(args)...),
                   [onConnect](SocketConnection* socketConnection) { // onConnect
                       LOG(DEBUG) << socketConnection->getConnectionName() << ": OnConnect";
@@ -194,85 +181,90 @@ namespace core::socket::stream {
         const SocketClient& realConnect(const std::function<void(const SocketAddress&, core::socket::State)>& onStatus,
                                         unsigned int tries,
                                         double retryTimeoutScale) const {
-            LOG(DEBUG) << this->config->getInstanceName() << ": Initiating connect";
-
-            core::EventReceiver::atNextTick(
+            sharedContext->flowController.startFlow(
                 [config = this->config, sharedContext = this->sharedContext, onStatus, tries, retryTimeoutScale] {
-                    if (core::SNodeC::state() == core::State::RUNNING || core::SNodeC::state() == core::State::INITIALIZED) {
-                        auto autoConnectControl = sharedContext->autoConnectControl;
-                        if (!autoConnectControl) {
-                            autoConnectControl = std::make_shared<AutoConnectControl>();
-                            sharedContext->autoConnectControl = autoConnectControl;
-                            if (sharedContext->onAutoConnectControl) {
-                                sharedContext->onAutoConnectControl(autoConnectControl);
-                            }
+                    if (config->Instance::getParent() != nullptr || !config->Instance::getRequired()) {
+                        LOG(DEBUG) << config->getInstanceName() << ": Initiating connect";
+
+                        if (core::SNodeC::state() == core::State::RUNNING || core::SNodeC::state() == core::State::INITIALIZED) {
+                            new SocketConnector(
+                                sharedContext->socketContextFactory,
+                                sharedContext->onConnect,
+                                sharedContext->onConnected,
+                                [config, sharedContext, onStatus](SocketConnection* socketConnection) {
+                                    sharedContext->onDisconnect(socketConnection);
+
+                                    if (config->getReconnect() && sharedContext->flowController.isReconnectEnabled() &&
+                                        core::eventLoopState() == core::State::RUNNING) {
+                                        double relativeReconnectTimeout = config->getReconnectTime();
+
+                                        LOG(INFO)
+                                            << config->getInstanceName() << ": Reconnect in " << relativeReconnectTimeout << " seconds";
+
+                                        sharedContext->flowController.armReconnectTimer(
+                                            relativeReconnectTimeout, [config, sharedContext, /*generation,*/ onStatus]() {
+                                                if (!sharedContext->flowController.isReconnectEnabled()) {
+                                                    return;
+                                                }
+                                                if (config->getReconnect()) {
+                                                    sharedContext->flowController.reportFlowReconnect();
+                                                    SocketClient(config, sharedContext).realConnect(onStatus, 0, config->getRetryBase());
+                                                } else {
+                                                    LOG(INFO) << config->getInstanceName() << ": Reconnect disabled during wait";
+                                                }
+                                            });
+                                    }
+                                },
+                                [sharedContext](core::eventreceiver::ConnectEventReceiver* connectEventReceiver) {
+                                    sharedContext->flowController.observeConnectEventReceiver(connectEventReceiver);
+                                },
+                                [config, sharedContext, onStatus, tries, retryTimeoutScale](const SocketAddress& socketAddress,
+                                                                                            core::socket::State state) {
+                                    const bool retryFlag = (state & core::socket::State::NO_RETRY) == 0;
+                                    state &= ~core::socket::State::NO_RETRY;
+                                    onStatus(socketAddress, state);
+
+                                    if (retryFlag && config->getRetry() // Shall we potentially retry? In case are the ...
+                                        && sharedContext->flowController.isRetryEnabled() &&
+                                        (config->getRetryTries() == 0 ||
+                                         tries < config->getRetryTries()) // ... limits not reached and has an ...
+                                        && (state == core::socket::State::ERROR ||
+                                            (state == core::socket::State::FATAL && config->getRetryOnFatal()))) { // error occurred?
+                                        double relativeRetryTimeout =
+                                            config->getRetryLimit() > 0
+                                                ? std::min<double>(config->getRetryTimeout() * retryTimeoutScale, config->getRetryLimit())
+                                                : config->getRetryTimeout() * retryTimeoutScale;
+                                        relativeRetryTimeout -=
+                                            utils::Random::getInRange(-config->getRetryJitter(), config->getRetryJitter()) *
+                                            relativeRetryTimeout / 100.;
+
+                                        LOG(INFO)
+                                            << config->getInstanceName() << ": Retry connect in " << relativeRetryTimeout << " seconds";
+
+                                        sharedContext->flowController.armRetryTimer(
+                                            relativeRetryTimeout,
+                                            [config,
+                                             sharedContext,
+                                             /*generation,*/ onStatus,
+                                             tries,
+                                             retryTimeoutScale]() {
+                                                if (!sharedContext->flowController.isRetryEnabled()) {
+                                                    return;
+                                                }
+                                                if (config->getRetry()) {
+                                                    sharedContext->flowController.reportFlowRetry();
+                                                    SocketClient(config, sharedContext)
+                                                        .realConnect(onStatus, tries + 1, retryTimeoutScale * config->getRetryBase());
+                                                } else {
+                                                    LOG(INFO) << config->getInstanceName() << ": Retry connect disabled during wait";
+                                                }
+                                            });
+                                    }
+                                },
+                                config);
                         }
-
-                        new SocketConnector(
-                            sharedContext->socketContextFactory,
-                            sharedContext->onConnect,
-                            sharedContext->onConnected,
-                            [config, sharedContext, autoConnectControl, onDisconnect = sharedContext->onDisconnect, onStatus](
-                                SocketConnection* socketConnection) {
-                                onDisconnect(socketConnection);
-
-                                if (config->getReconnect() && autoConnectControl->isReconnectEnabled() &&
-                                    core::eventLoopState() == core::State::RUNNING) {
-                                    double relativeReconnectTimeout = config->getReconnectTime();
-
-                                    LOG(INFO) << config->getInstanceName() << ": Reconnect in " << relativeReconnectTimeout << " seconds";
-
-                                    autoConnectControl->armReconnectTimer(
-                                        relativeReconnectTimeout, [config, sharedContext, autoConnectControl, /*generation,*/ onStatus]() {
-                                            if (!autoConnectControl->isReconnectEnabled()) {
-                                                return;
-                                            }
-                                            if (config->getReconnect()) {
-                                                SocketClient(config, sharedContext).realConnect(onStatus, 0, config->getRetryBase());
-                                            } else {
-                                                LOG(INFO) << config->getInstanceName() << ": Reconnect disabled during wait";
-                                            }
-                                        });
-                                }
-                            },
-                            sharedContext->onInitState,
-                            [config, sharedContext, autoConnectControl, onStatus, tries, retryTimeoutScale](
-                                const SocketAddress& socketAddress, core::socket::State state) {
-                                const bool retryFlag = (state & core::socket::State::NO_RETRY) == 0;
-                                state &= ~core::socket::State::NO_RETRY;
-                                onStatus(socketAddress, state);
-
-                                if (retryFlag && config->getRetry() // Shall we potentially retry? In case are the ...
-                                    && autoConnectControl->isRetryEnabled() &&
-                                    (config->getRetryTries() == 0 ||
-                                     tries < config->getRetryTries()) // ... limits not reached and has an ...
-                                    && (state == core::socket::State::ERROR ||
-                                        (state == core::socket::State::FATAL && config->getRetryOnFatal()))) { // error occurred?
-                                    double relativeRetryTimeout =
-                                        config->getRetryLimit() > 0
-                                            ? std::min<double>(config->getRetryTimeout() * retryTimeoutScale, config->getRetryLimit())
-                                            : config->getRetryTimeout() * retryTimeoutScale;
-                                    relativeRetryTimeout -= utils::Random::getInRange(-config->getRetryJitter(), config->getRetryJitter()) *
-                                                            relativeRetryTimeout / 100.;
-
-                                    LOG(INFO) << config->getInstanceName() << ": Retry connect in " << relativeRetryTimeout << " seconds";
-
-                                    autoConnectControl->armRetryTimer(
-                                        relativeRetryTimeout,
-                                        [config, sharedContext, autoConnectControl, /*generation,*/ onStatus, tries, retryTimeoutScale]() {
-                                            if (!autoConnectControl->isRetryEnabled()) {
-                                                return;
-                                            }
-                                            if (config->getRetry()) {
-                                                SocketClient(config, sharedContext)
-                                                    .realConnect(onStatus, tries + 1, retryTimeoutScale * config->getRetryBase());
-                                            } else {
-                                                LOG(INFO) << config->getInstanceName() << ": Retry connect disabled during wait";
-                                            }
-                                        });
-                                }
-                            },
-                            config);
+                    } else {
+                        LOG(FATAL) << config->getInstanceName() << " required";
                     }
                 });
 
@@ -342,43 +334,8 @@ namespace core::socket::stream {
             return *this;
         }
 
-        std::function<void(const std::shared_ptr<AutoConnectControl>&)>& getOnAutoConnectControl() {
-            return sharedContext->onAutoConnectControl;
-        }
-
-        const SocketClient&
-        setOnAutoConnectControl(const std::function<void(const std::shared_ptr<AutoConnectControl>&)>& onAutoConnectControl,
-                                bool initialize = false) const {
-            sharedContext->onAutoConnectControl = initialize ? onAutoConnectControl
-                                                             : [oldOnAutoConnectControl = sharedContext->onAutoConnectControl,
-                                                                onAutoConnectControl](const std::shared_ptr<AutoConnectControl>& control) {
-                                                                   oldOnAutoConnectControl(control);
-                                                                   onAutoConnectControl(control);
-                                                               };
-
-            if (sharedContext->autoConnectControl && onAutoConnectControl) {
-                core::EventReceiver::atNextTick([sharedContext = this->sharedContext, onAutoConnectControl] {
-                    onAutoConnectControl(sharedContext->autoConnectControl);
-                });
-            }
-
-            return *this;
-        }
-
-        std::function<void(core::eventreceiver::ConnectEventReceiver*)>& getOnInitState() const {
-            return sharedContext->onInitState;
-        }
-
-        const SocketClient& setOnInitState(const std::function<void(core::eventreceiver::ConnectEventReceiver*)>& onInitState,
-                                           bool initialize = false) const {
-            sharedContext->onInitState = initialize ? onInitState
-                                                    : [oldOnInitState = sharedContext->onInitState,
-                                                       onInitState](core::eventreceiver::ConnectEventReceiver* descriptorEventReceiver) {
-                                                          oldOnInitState(descriptorEventReceiver);
-                                                          onInitState(descriptorEventReceiver);
-                                                      };
-
-            return *this;
+        ClientFlowController* getFlowController() const {
+            return &sharedContext->flowController;
         }
 
         std::shared_ptr<SocketContextFactory> getSocketContextFactory() const {
@@ -391,7 +348,7 @@ namespace core::socket::stream {
 
     template <typename SocketClient, typename... Args>
     SocketClient Client(const std::string& instanceName,
-                        const std::function<void(typename SocketClient::Config&)>& configurator,
+                        const std::function<void(typename SocketClient::Config*)>& configurator,
                         Args&&... socketContextFactoryArgs) {
         const SocketClient socketClient(instanceName, std::forward<Args>(socketContextFactoryArgs)...);
 

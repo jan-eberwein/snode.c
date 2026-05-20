@@ -58,11 +58,13 @@
         return *(dispatcher->nextRoute = std::make_shared<Route>(                                                                          \
                      HTTP_METHOD, mountPoint.relativeMountPath, std::make_shared<dispatcher::MiddlewareDispatcher>(lambda)))               \
                     .get();                                                                                                                \
+        ;                                                                                                                                  \
     }                                                                                                                                      \
     Route& Route::METHOD(const std::function<void(const std::shared_ptr<Request>&, const std::shared_ptr<Response>&)>& lambda) const {     \
         return *(dispatcher->nextRoute = std::make_shared<Route>(                                                                          \
                      HTTP_METHOD, mountPoint.relativeMountPath, std::make_shared<dispatcher::ApplicationDispatcher>(lambda)))              \
                     .get();                                                                                                                \
+        ;                                                                                                                                  \
     }
 
 namespace express {
@@ -77,55 +79,24 @@ namespace express {
         , dispatcher(dispatcher) {
     }
 
-    bool Route::dispatch(Controller& controller) {
-        return dispatch(controller, "");
-    }
-
-    bool Route::dispatch(Controller& controller, const std::string& parentMountPath) {
+    bool Route::dispatch(Controller& controller, bool strictRouting, bool caseInsensitiveRouting, bool mergeParams) {
         controller.setCurrentRoute(this);
 
-        const bool originalIsInherit = strictRouting == StrictRouting::INHERIT;
-
-        if (originalIsInherit) {
-            strictRouting = controller.getStrictRouting() ? StrictRouting::STRICT : StrictRouting::LAX;
-        }
-
-        const bool oldStrictRouting = controller.setStrictRouting(strictRouting == StrictRouting::STRICT);
-
-        bool dispatched = dispatcher->dispatch(controller, parentMountPath, mountPoint);
-
-        controller.setStrictRouting(oldStrictRouting);
-
-        if (originalIsInherit) {
-            strictRouting = StrictRouting::INHERIT;
-        }
+        bool dispatched = dispatcher->dispatch(controller, mountPoint, strictRouting, caseInsensitiveRouting, mergeParams);
 
         if (!dispatched) { // TODO: only call if parent route matched
-            dispatched = controller.dispatchNext(parentMountPath);
+            dispatched = controller.dispatchNext(strictRouting, caseInsensitiveRouting, mergeParams);
         }
 
         return dispatched;
     }
 
-    bool Route::dispatchNext(Controller& controller, const std::string& parentMountPath) {
-        return dispatcher->dispatchNext(controller, parentMountPath);
+    bool Route::dispatchNext(Controller& controller, bool strictRouting, bool caseInsensitiveRouting, bool mergeParams) {
+        return dispatcher->dispatchNext(controller, strictRouting, caseInsensitiveRouting, mergeParams);
     }
 
     std::list<std::string> Route::getRoute(const std::string& parentMountPath, bool strictRouting) const {
-        const bool concreteStrictRouting =
-            this->strictRouting == StrictRouting::INHERIT ? strictRouting : this->strictRouting == StrictRouting::STRICT;
-
-        return dispatcher->getRoutes(parentMountPath, mountPoint, concreteStrictRouting);
-    }
-
-    Route& Route::setStrictRouting(bool strict) {
-        this->strictRouting = strict ? StrictRouting::STRICT : StrictRouting::LAX;
-
-        return *this;
-    }
-
-    const Route::StrictRouting& Route::getStrictRouting() const {
-        return strictRouting;
+        return dispatcher->getRoutes(parentMountPath, mountPoint, strictRouting);
     }
 
     DEFINE_ROUTE_REQUESTMETHOD(use, "use")

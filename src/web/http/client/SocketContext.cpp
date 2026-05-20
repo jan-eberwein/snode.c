@@ -44,6 +44,7 @@
 #include "core/EventReceiver.h"
 #include "core/socket/stream/SocketConnection.h"
 #include "web/http/CookieOptions.h"
+#include "web/http/client/Request.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -125,7 +126,7 @@ namespace web::http::client {
                        << " - QueueSize = " << pendingRequests.size() << " - Flags: " << flags << " - "
                        << web::http::ciContains(request->header("Connection"), "close");
 
-            if (pendingRequests.size() == 1) {
+            if (pendingRequests.size() == 1 && (deliveredRequests.empty() || pipelinedRequests)) {
                 initiateRequest();
             }
         } else {
@@ -161,16 +162,22 @@ namespace web::http::client {
                 LOG(WARNING) << getSocketConnection()->getConnectionName() << " HTTP: Request (" << request->count
                              << ") delivering failed: " << requestLine;
 
-                core::EventReceiver::atNextTick([this, masterRequest = static_cast<std::weak_ptr<Request>>(masterRequest)]() {
-                    pendingRequests.pop_front();
-                    if (!masterRequest.expired() && !pendingRequests.empty()) {
-                        const std::shared_ptr<Request>& request = pendingRequests.front();
+                core::EventReceiver::atNextTick([masterRequest = std::weak_ptr(masterRequest)]() {
+                    if (!masterRequest.expired()) {
+                        SocketContext* socketContext = masterRequest.lock()->getSocketContext();
 
-                        LOG(DEBUG) << getSocketConnection()->getConnectionName() << " HTTP: Request (" << request->count
-                                   << ") dequeued: " << request->method << " " << request->url << " HTTP/" << request->httpMajor << "."
-                                   << request->httpMinor;
+                        if (socketContext != nullptr) {
+                            socketContext->pendingRequests.pop_front();
+                            if (!socketContext->pendingRequests.empty()) {
+                                const std::shared_ptr<Request>& request = socketContext->pendingRequests.front();
 
-                        initiateRequest();
+                                LOG(DEBUG) << socketContext->getSocketConnection()->getConnectionName() << " HTTP: Request ("
+                                           << request->count << ") dequeued: " << request->method << " " << request->url << " HTTP/"
+                                           << request->httpMajor << "." << request->httpMinor;
+
+                                socketContext->initiateRequest();
+                            }
+                        }
                     }
                 });
             }
@@ -196,15 +203,19 @@ namespace web::http::client {
             deliveredRequests.push_back(currentRequest);
 
             if (pipelinedRequests && !pendingRequests.empty()) {
-                core::EventReceiver::atNextTick([this, masterRequest = static_cast<std::weak_ptr<Request>>(masterRequest)]() {
+                core::EventReceiver::atNextTick([masterRequest = std::weak_ptr(masterRequest)]() {
                     if (!masterRequest.expired()) {
-                        const std::shared_ptr<Request>& request = pendingRequests.front();
+                        SocketContext* socketContext = masterRequest.lock()->getSocketContext();
 
-                        LOG(DEBUG) << getSocketConnection()->getConnectionName() << " HTTP: Request (" << request->count
-                                   << ") dequeued: " << request->method << " " << request->url << " HTTP/" << request->httpMajor << "."
-                                   << request->httpMinor;
+                        if (socketContext != nullptr) {
+                            const std::shared_ptr<Request>& request = socketContext->pendingRequests.front();
 
-                        initiateRequest();
+                            LOG(DEBUG) << socketContext->getSocketConnection()->getConnectionName() << " HTTP: Request (" << request->count
+                                       << ") dequeued: " << request->method << " " << request->url << " HTTP/" << request->httpMajor << "."
+                                       << request->httpMinor;
+
+                            socketContext->initiateRequest();
+                        }
                     }
                 });
             }
@@ -289,15 +300,19 @@ namespace web::http::client {
             LOG(DEBUG) << getSocketConnection()->getConnectionName() << " HTTP: Connection = Keep-Alive";
 
             if (!pipelinedRequests && !pendingRequests.empty()) {
-                core::EventReceiver::atNextTick([this, masterRequest = static_cast<std::weak_ptr<Request>>(masterRequest)]() {
+                core::EventReceiver::atNextTick([masterRequest = std::weak_ptr(masterRequest)]() {
                     if (!masterRequest.expired()) {
-                        const std::shared_ptr<Request>& request = pendingRequests.front();
+                        SocketContext* socketContext = masterRequest.lock()->getSocketContext();
 
-                        LOG(DEBUG) << getSocketConnection()->getConnectionName() << " HTTP: Initiating request (" << request->count
-                                   << "): " << request->method << " " << request->url << " HTTP/" << request->httpMajor << "."
-                                   << request->httpMinor;
+                        if (socketContext != nullptr) {
+                            const std::shared_ptr<Request>& request = socketContext->pendingRequests.front();
 
-                        initiateRequest();
+                            LOG(DEBUG) << socketContext->getSocketConnection()->getConnectionName() << " HTTP: Initiating request ("
+                                       << request->count << "): " << request->method << " " << request->url << " HTTP/"
+                                       << request->httpMajor << "." << request->httpMinor;
+
+                            socketContext->initiateRequest();
+                        }
                     }
                 });
             }
@@ -322,7 +337,7 @@ namespace web::http::client {
         if (!httpClose && (!deliveredRequests.empty() || onServerSentEvent)) {
             if (!onServerSentEvent) {
                 consumed = parser.parse();
-            } else if (onServerSentEvent) {
+            } else {
                 consumed = onServerSentEvent();
             }
         }
@@ -342,6 +357,7 @@ namespace web::http::client {
             deliverResponse(response);
         }
 
+        masterRequest->disconnect();
         onHttpDisconnected(masterRequest);
 
         LOG(INFO) << getSocketConnection()->getConnectionName() << " HTTP: Received disconnect";

@@ -44,7 +44,6 @@
 #include "core/DescriptorEventPublisher.h"
 #include "core/DescriptorEventReceiver.h"
 #include "core/DynamicLoader.h"
-#include "core/Event.h"
 #include "core/TimerEventPublisher.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
@@ -68,7 +67,7 @@ namespace core {
     }
 
     EventMultiplexer::~EventMultiplexer() {
-        for (DescriptorEventPublisher* descriptorEventPublisher : descriptorEventPublishers) {
+        for (const DescriptorEventPublisher* descriptorEventPublisher : descriptorEventPublishers) {
             delete descriptorEventPublisher;
         }
         delete timerEventPublisher;

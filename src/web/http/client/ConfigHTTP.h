@@ -42,35 +42,35 @@
 #ifndef WEB_HTTP_CLIENT_HTTPCONFIG_H
 #define WEB_HTTP_CLIENT_HTTPCONFIG_H
 
-namespace net::config {
-    class ConfigInstance;
-} // namespace net::config
-
-namespace CLI {
-    class Option;
-} // namespace CLI
+#include "net/config/ConfigSection.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#include <string>
+#include <string_view>
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace web::http::client {
 
-    class ConfigHTTP {
+    class ConfigHTTP : public utils::SubCommand {
     public:
-        explicit ConfigHTTP(net::config::ConfigInstance& configInstance);
+        constexpr static std::string_view NAME{"http"};
+        constexpr static std::string_view DESCRIPTION{"HTTP behavior"};
+
+        explicit ConfigHTTP(utils::SubCommand* parent);
+
+        ~ConfigHTTP() override;
+
         ConfigHTTP(ConfigHTTP&) = delete;
         ConfigHTTP& operator=(ConfigHTTP&) = delete;
 
-        ConfigHTTP(ConfigHTTP&&) noexcept = default;
+        ConfigHTTP(ConfigHTTP&&) noexcept = delete;
         ConfigHTTP& operator=(ConfigHTTP&&) = delete;
 
-        void setHostHeader(const std::string& hostHeader);
+        ConfigHTTP* setHostHeader(const std::string& hostHeader);
         std::string getHostHeader() const;
 
-        void setPipelinedRequests(bool pipelinedRequests);
+        ConfigHTTP* setPipelinedRequests(bool pipelinedRequests);
         bool getPipelinedRequests() const;
 
     private:

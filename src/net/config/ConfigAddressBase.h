@@ -42,27 +42,30 @@
 #ifndef NET_CONFIG_CONFIGADDRESSBASE_H
 #define NET_CONFIG_CONFIGADDRESSBASE_H
 
-#include "net/config/ConfigSection.h"
-
 namespace net::config {
     class ConfigInstance;
-}
+    class ConfigSection;
+} // namespace net::config
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
+
+#include <string>
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace net::config {
 
     template <typename SocketAddressT>
-    class ConfigAddressBase : protected ConfigSection {
+    class ConfigAddressBase {
     private:
         using Super = ConfigSection;
 
     protected:
-        explicit ConfigAddressBase(ConfigInstance* instance,
-                                   const std::string& addressOptionName = "",
-                                   const std::string& addressOptionDescription = "");
+        ConfigAddressBase(ConfigInstance* instance,
+                          const std::string& addressOptionName = "",
+                          const std::string& addressOptionDescription = "");
+
+        explicit ConfigAddressBase(net::config::ConfigSection* section);
 
         virtual ~ConfigAddressBase() = default;
 

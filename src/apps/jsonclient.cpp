@@ -46,8 +46,6 @@
 
 #include "log/Logger.h"
 
-#include <string>
-
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 int main(int argc, char* argv[]) {
@@ -68,7 +66,7 @@ int main(int argc, char* argv[]) {
             req->type("application/json");
             req->set("Connection", "close");
             req->send(
-                "{\"userId\":1,\"schnitzel\":\"good\",\"hungry\":false}",
+                R"({"userId":1,"schnitzel":"good","hungry":false})",
                 []([[maybe_unused]] const std::shared_ptr<Request>& req, const std::shared_ptr<Response>& res) {
                     VLOG(1) << "-- OnResponse";
                     VLOG(1) << "     Status:";
@@ -102,7 +100,7 @@ int main(int argc, char* argv[]) {
 
     jsonClient.connect("localhost",
                        8080,
-                       [instanceName = jsonClient.getConfig().getInstanceName()](
+                       [instanceName = jsonClient.getConfig()->getInstanceName()](
                            const SocketAddress& socketAddress,
                            const core::socket::State& state) { // example.com:81 simulate connect timeout
                            switch (state) {
@@ -123,7 +121,7 @@ int main(int argc, char* argv[]) {
     /*
         jsonClient.connect("localhost",
                            8080,
-                           [instanceName = jsonClient.getConfig().getInstanceName()](
+                           [instanceName = jsonClient.getConfig()->getInstanceName()](
                                const SocketAddress& socketAddress,
                                const core::socket::State& state) { // example.com:81 simulate connnect timeout
                                switch (state) {

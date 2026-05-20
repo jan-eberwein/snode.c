@@ -45,34 +45,12 @@
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
-#ifdef __has_warning
-#if __has_warning("-Wweak-vtables")
-#pragma GCC diagnostic ignored "-Wweak-vtables"
-#endif
-#if __has_warning("-Wcovered-switch-default")
-#pragma GCC diagnostic ignored "-Wcovered-switch-default"
-#endif
-#if __has_warning("-Wmissing-noreturn")
-#pragma GCC diagnostic ignored "-Wmissing-noreturn"
-#endif
-#if __has_warning("-Wnrvo")
-#pragma GCC diagnostic ignored "-Wnrvo"
-#endif
-#endif
-#endif
-#include "utils/CLI11.hpp"
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-
 #include "core/system/netdb.h"
+#include "utils/PreserveErrno.h"
 
+#include <fstream>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <string>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -83,18 +61,17 @@ namespace net::in6::stream::config {
 
     ConfigSocketServer::ConfigSocketServer(net::config::ConfigInstance* instance)
         : net::config::stream::ConfigSocketServer<net::in6::config::ConfigAddress, net::in6::config::ConfigAddressReverse>(instance) {
-        net::in6::config::ConfigAddress<net::config::ConfigAddressLocal>::setPortRequired();
-
-        net::in6::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiFlags(AI_PASSIVE);
-        net::in6::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiSockType(SOCK_STREAM);
-        net::in6::config::ConfigAddress<net::config::ConfigAddressLocal>::setAiProtocol(IPPROTO_TCP);
+        Local::setPortRequired();
+        Local::setAiFlags(AI_PASSIVE);
+        Local::setAiSockType(SOCK_STREAM);
+        Local::setAiProtocol(IPPROTO_TCP);
 
         reuseAddressOpt = net::config::ConfigPhysicalSocket::addSocketOption( //
             "--reuse-address{true}",
             SOL_SOCKET,
             SO_REUSEADDR,
             "Reuse socket address",
-            "bool",
+            "BOOL",
             XSTR(IN6_REUSE_ADDRESS),
             CLI::IsMember({"true", "false"}));
 
@@ -103,98 +80,115 @@ namespace net::in6::stream::config {
             SOL_SOCKET,
             SO_REUSEPORT,
             "Reuse port number",
-            "bool",
+            "BOOL",
             XSTR(IN6_REUSE_PORT),
             CLI::IsMember({"true", "false"}));
 
+        std::string ipv6Only = XSTR(IN6_IPV6_ONLY);
+        if (ipv6Only == "default") {
+            std::ifstream in("/proc/sys/net/ipv6/bindv6only");
+            if (in) {
+                std::string s;
+                in >> s; // reads "0" or "1"
+
+                ipv6Only = s == "1" ? "true" : "false";
+            }
+            in.close();
+        }
         iPv6OnlyOpt = net::config::ConfigPhysicalSocket::addSocketOption( //
             "--ipv6-only{true}",
             IPPROTO_IPV6,
             IPV6_V6ONLY,
-            "Turn of IPv6 dual stack mode",
-            "tristat",
+            "Turn off IPv6 dual stack mode",
+            "BOOL",
             XSTR(IN6_IPV6_ONLY),
             CLI::IsMember({"true", "false", "default"}));
+        if (std::string(XSTR(IN6_IPV6_ONLY)) == "default") {
+            Local::setDefaultValue(iPv6OnlyOpt, "false");
+        }
 
         disableNagleAlgorithmOpt = net::config::ConfigPhysicalSocket::addSocketOption( //
             "--disable-nagle-algorithm{true}",
             IPPROTO_TCP,
             TCP_NODELAY,
             "Turn of Nagle algorithm",
-            "tristat",
+            "TRISTAT",
             XSTR(IN6_SERVER_DISABLE_NAGLE_ALGORITHM),
             CLI::IsMember({"true", "false", "default"}));
+        if (std::string(XSTR(IN6_SERVER_DISABLE_NAGLE_ALGORITHM)) == "default") {
+            Local::setDefaultValue(disableNagleAlgorithmOpt, "false");
+        }
     }
 
     ConfigSocketServer::~ConfigSocketServer() {
     }
 
-    ConfigSocketServer& ConfigSocketServer::setReuseAddress(bool reuseAddress) {
+    ConfigSocketServer* ConfigSocketServer::setReuseAddress(bool reuseAddress) {
+        const utils::PreserveErrno preserveErrno;
+
         if (reuseAddress) {
             addSocketOption(SOL_SOCKET, SO_REUSEADDR, 1);
         } else {
             addSocketOption(SOL_SOCKET, SO_REUSEADDR, 0);
         }
 
-        reuseAddressOpt //
-            ->default_val(reuseAddress ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(reuseAddressOpt, reuseAddress ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getReuseAddress() const {
         return reuseAddressOpt->as<bool>();
     }
 
-    ConfigSocketServer& ConfigSocketServer::setReusePort(bool reusePort) {
+    ConfigSocketServer* ConfigSocketServer::setReusePort(bool reusePort) {
+        const utils::PreserveErrno preserveErrno;
+
         if (reusePort) {
             addSocketOption(SOL_SOCKET, SO_REUSEPORT, 1);
         } else {
             addSocketOption(SOL_SOCKET, SO_REUSEPORT, 0);
         }
 
-        reusePortOpt //
-            ->default_val(reusePort ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(reusePortOpt, reusePort ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getReusePort() const {
         return reusePortOpt->as<bool>();
     }
 
-    ConfigSocketServer& ConfigSocketServer::setIPv6Only(bool iPv6Only) {
+    ConfigSocketServer* ConfigSocketServer::setIPv6Only(bool iPv6Only) {
+        const utils::PreserveErrno preserveErrno;
+
         if (iPv6Only) {
             addSocketOption(IPPROTO_IPV6, IPV6_V6ONLY, 1);
         } else {
             addSocketOption(IPPROTO_IPV6, IPV6_V6ONLY, 0);
         }
 
-        iPv6OnlyOpt //
-            ->default_val(iPv6Only ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(iPv6OnlyOpt, iPv6Only ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getIPv6Only() const {
         return iPv6OnlyOpt->as<bool>();
     }
 
-    ConfigSocketServer& ConfigSocketServer::setDisableNagleAlgorithm(bool disableNagleAlgorithm) {
+    ConfigSocketServer* ConfigSocketServer::setDisableNagleAlgorithm(bool disableNagleAlgorithm) {
+        const utils::PreserveErrno preserveErrno;
+
         if (disableNagleAlgorithm) {
             addSocketOption(IPPROTO_TCP, TCP_NODELAY, 1);
         } else {
             addSocketOption(IPPROTO_TCP, TCP_NODELAY, 0);
         }
 
-        disableNagleAlgorithmOpt //
-            ->default_val(disableNagleAlgorithm ? "true" : "false")
-            ->clear();
+        Local::setDefaultValue(disableNagleAlgorithmOpt, disableNagleAlgorithm ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     bool ConfigSocketServer::getDisableNagleAlgorithm() const {

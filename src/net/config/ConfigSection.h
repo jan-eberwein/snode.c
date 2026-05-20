@@ -42,99 +42,33 @@
 #ifndef NET_CONFIG_CONFIGSECTION_H
 #define NET_CONFIG_CONFIGSECTION_H
 
+#include "utils/SubCommand.h" // IWYU pragma: export
+
 namespace net::config {
     class ConfigInstance;
 }
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#include <cstdint>
-#include <functional>
-#include <string> // IWYU pragma: export
-
-namespace CLI {
-    class App;
-    class Option;
-    class Validator;
-} // namespace CLI
+#include <concepts>    // IWYU pragma: export
+#include <string>      // IWYU pragma: export
+#include <type_traits> // IWYU pragma: export
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace net::config {
 
-    class ConfigSection {
+    class ConfigSection : public utils::SubCommand {
     public:
-        ConfigSection(ConfigInstance* instance, const std::string& name, const std::string& description);
+        template <typename T>
+        ConfigSection(ConfigInstance* instance, T* sectionPtr, const std::string& group = "Sections");
+
+        ~ConfigSection() override;
 
         ConfigSection(const ConfigSection&) = delete;
         ConfigSection(ConfigSection&&) = delete;
 
         ConfigSection& operator=(const ConfigSection&) = delete;
-        ConfigSection& operator=(ConfigSection&&) = delete;
-
-        CLI::Option* addOption(const std::string& name, const std::string& description);
-
-        CLI::Option* addOption(const std::string& name, const std::string& description, const std::string& typeName);
-
-        CLI::Option* addOption(const std::string& name,
-                               const std::string& description,
-                               const std::string& typeName,
-                               const CLI::Validator& additionalValidator);
-
-        template <typename ValueTypeT>
-        CLI::Option*
-        addOption(const std::string& name, const std::string& description, const std::string& typeName, ValueTypeT defaultValue);
-
-        template <typename ValueTypeT>
-        CLI::Option* addOption(const std::string& name,
-                               const std::string& description,
-                               const std::string& typeName,
-                               ValueTypeT defaultValue,
-                               const CLI::Validator& additionalValidator);
-
-        CLI::Option* addFlag(const std::string& name, const std::string& description, const std::string& typeName);
-
-        CLI::Option* addFlag(const std::string& name,
-                             const std::string& description,
-                             const std::string& typeName,
-                             const CLI::Validator& additionalValidator);
-
-        template <typename ValueTypeT>
-        CLI::Option* addFlag(const std::string& name, const std::string& description, const std::string& typeName, ValueTypeT defaultValue);
-
-        template <typename ValueTypeT>
-        CLI::Option* addFlag(const std::string& name,
-                             const std::string& description,
-                             const std::string& typeName,
-                             ValueTypeT defaultValue,
-                             const CLI::Validator& additionalValidator);
-
-        CLI::Option* addFlagFunction(const std::string& name,
-                                     const std::function<void()>& callback,
-                                     const std::string& description,
-                                     const std::string& typeName,
-                                     const std::string& defaultValue);
-
-        CLI::Option* addFlagFunction(const std::string& name,
-                                     const std::function<void()>& callback,
-                                     const std::string& description,
-                                     const std::string& typeName,
-                                     const std::string& defaultValue,
-                                     const CLI::Validator& validator);
-
-        void required(CLI::Option* opt, bool req = true);
-
-        bool required() const;
-
-    protected:
-        void setConfigurable(CLI::Option* option, bool configurable);
-
-        CLI::App* section = nullptr;
-
-    private:
-        ConfigInstance* instance = nullptr;
-
-        uint8_t requiredCount = 0;
     };
 
 } // namespace net::config

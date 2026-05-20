@@ -41,7 +41,11 @@
 
 #include "net/config/ConfigTlsClient.h"
 
-#include "net/config/ConfigSection.hpp"
+#include "ConfigTls.hpp"
+
+namespace net::config {
+    class ConfigInstance;
+}
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -50,21 +54,21 @@
 namespace net::config {
 
     ConfigTlsClient::ConfigTlsClient(ConfigInstance* instance)
-        : Super(instance) {
+        : ConfigTls(instance, this) {
         sniOpt = addOption( //
             "--sni",
             "Server Name Indication",
             "sni",
-            "",
             CLI::TypeValidator<std::string>());
     }
 
-    ConfigTlsClient& ConfigTlsClient::setSni(const std::string& sni) {
-        sniOpt //
-            ->default_val(sni)
-            ->clear();
+    ConfigTlsClient::~ConfigTlsClient() {
+    }
 
-        return *this;
+    ConfigTlsClient* ConfigTlsClient::setSni(const std::string& sni) {
+        setDefaultValue(sniOpt, sni);
+
+        return this;
     }
 
     std::string ConfigTlsClient::getSni() const {

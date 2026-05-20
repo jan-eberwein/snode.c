@@ -39,69 +39,26 @@
  * THE SOFTWARE.
  */
 
+#ifndef NET_CONFIG_CONFIGSECTION_HPP
+#define NET_CONFIG_CONFIGSECTION_HPP
+
+#include "net/config/ConfigInstance.h"
 #include "net/config/ConfigSection.h" // IWYU pragma: export
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfloat-equal"
-#ifdef __has_warning
-#if __has_warning("-Wweak-vtables")
-#pragma GCC diagnostic ignored "-Wweak-vtables"
-#endif
-#if __has_warning("-Wcovered-switch-default")
-#pragma GCC diagnostic ignored "-Wcovered-switch-default"
-#endif
-#if __has_warning("-Wmissing-noreturn")
-#pragma GCC diagnostic ignored "-Wmissing-noreturn"
-#endif
-#if __has_warning("-Wnrvo")
-#pragma GCC diagnostic ignored "-Wnrvo"
-#endif
-#endif
-#endif
-#include "utils/CLI11.hpp" // IWYU pragma: export
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
+#include <memory>
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 namespace net::config {
 
-    template <typename ValueType>
-    CLI::Option*
-    ConfigSection::addOption(const std::string& name, const std::string& description, const std::string& typeName, ValueType defaultValue) {
-        return addOption(name, description, typeName) //
-            ->default_val(defaultValue);
-    }
-
-    template <typename ValueType>
-    CLI::Option* ConfigSection::addOption(const std::string& name,
-                                          const std::string& description,
-                                          const std::string& typeName,
-                                          ValueType defaultValue,
-                                          const CLI::Validator& additionalValidator) {
-        return addOption(name, description, typeName, defaultValue) //
-            ->check(additionalValidator);
-    }
-
-    template <typename ValueType>
-    CLI::Option*
-    ConfigSection::addFlag(const std::string& name, const std::string& description, const std::string& typeName, ValueType defaultValue) {
-        return addFlag(name, description, typeName) //
-            ->default_val(defaultValue);
-    }
-
-    template <typename ValueType>
-    CLI::Option* ConfigSection::addFlag(const std::string& name,
-                                        const std::string& description,
-                                        const std::string& typeName,
-                                        ValueType defaultValue,
-                                        const CLI::Validator& additionalValidator) {
-        return addFlag(name, description, typeName, defaultValue) //
-            ->check(additionalValidator);
+    template <typename T>
+    ConfigSection::ConfigSection(ConfigInstance* instance, T* sectionPtr, const std::string& group)
+        : SubCommand(instance, std::make_shared<utils::AppWithPtr>(std::string(T::DESCRIPTION), std::string(T::NAME), sectionPtr), group) {
+        description(std::string{T::DESCRIPTION} + " for instance '" + instance->getInstanceName() + "'");
     }
 
 } // namespace net::config
+
+#endif // NET_CONFIG_CONFIGSECTION_HPP

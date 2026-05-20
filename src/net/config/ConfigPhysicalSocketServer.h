@@ -45,15 +45,13 @@
 #include "net/config/ConfigPhysicalSocket.h" // IWYU pragma: export
 #include "utils/Timeval.h"                   // IWYU pragma: export
 
+// IWYU pragma: no_include "net/config/ConfigPhysicalSocket.hpp"
+
 namespace net::config {
     class ConfigInstance;
 }
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
-
-namespace CLI {
-    class Option;
-}
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
@@ -63,20 +61,19 @@ namespace net::config {
     private:
         using Super = ConfigPhysicalSocket;
 
-    public:
-        using Socket = ConfigPhysicalSocketServer;
-
     protected:
         explicit ConfigPhysicalSocketServer(ConfigInstance* instance);
 
+        ~ConfigPhysicalSocketServer() override;
+
     public:
-        ConfigPhysicalSocketServer& setBacklog(int newBacklog);
+        ConfigPhysicalSocketServer* setBacklog(int newBacklog);
         int getBacklog() const;
 
-        ConfigPhysicalSocketServer& setAcceptsPerTick(int acceptsPerTickSet);
+        ConfigPhysicalSocketServer* setAcceptsPerTick(int acceptsPerTickSet);
         int getAcceptsPerTick() const;
 
-        ConfigPhysicalSocketServer& setAcceptTimeout(const utils::Timeval& acceptTimeout);
+        ConfigPhysicalSocketServer* setAcceptTimeout(const utils::Timeval& acceptTimeout);
         utils::Timeval getAcceptTimeout() const;
 
     private:

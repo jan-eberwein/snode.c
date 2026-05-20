@@ -49,40 +49,40 @@ namespace net::config {
 }
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-namespace CLI {
-    class Option;
-} // namespace CLI
-
 #include "utils/Timeval.h"
 
 #include <cstddef>
+#include <string_view>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::config {
 
-    class ConfigConnection : protected ConfigSection {
+    class ConfigConnection : public ConfigSection {
     public:
-        using Connection = ConfigConnection;
+        constexpr static std::string_view NAME{"connection"};
+        constexpr static std::string_view DESCRIPTION{"Configuration of established connections"};
 
     protected:
         explicit ConfigConnection(ConfigInstance* instance);
 
+        ~ConfigConnection() override;
+
     public:
         utils::Timeval getReadTimeout() const;
-        ConfigConnection& setReadTimeout(const utils::Timeval& newReadTimeoutSet);
+        ConfigConnection* setReadTimeout(const utils::Timeval& newReadTimeoutSet);
 
         utils::Timeval getWriteTimeout() const;
-        ConfigConnection& setWriteTimeout(const utils::Timeval& newWriteTimeoutSet);
+        ConfigConnection* setWriteTimeout(const utils::Timeval& newWriteTimeoutSet);
 
         std::size_t getReadBlockSize() const;
-        ConfigConnection& setReadBlockSize(std::size_t newReadBlockSize);
+        ConfigConnection* setReadBlockSize(std::size_t newReadBlockSize);
 
         std::size_t getWriteBlockSize() const;
-        ConfigConnection& setWriteBlockSize(std::size_t newWriteBlockSize);
+        ConfigConnection* setWriteBlockSize(std::size_t newWriteBlockSize);
 
         utils::Timeval getTerminateTimeout() const;
-        ConfigConnection& setTerminateTimeout(const utils::Timeval& newTerminateTimeout);
+        ConfigConnection* setTerminateTimeout(const utils::Timeval& newTerminateTimeout);
 
     private:
         CLI::Option* readTimeoutOpt = nullptr;

@@ -48,9 +48,7 @@
 #include "utils/PreserveErrno.h"
 #include "utils/system/signal.h"
 
-#include <cstddef>
 #include <iomanip>
-#include <string>
 #include <utility>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
@@ -261,8 +259,8 @@ namespace core::socket::stream {
     }
 
     template <typename PhysicalSocket, typename SocketReader, typename SocketWriter, typename Config>
-    Config& SocketConnectionT<PhysicalSocket, SocketReader, SocketWriter, Config>::getConfig() const {
-        return *config;
+    Config* SocketConnectionT<PhysicalSocket, SocketReader, SocketWriter, Config>::getConfig() const {
+        return config.get();
     }
 
     template <typename PhysicalSocket, typename SocketReader, typename SocketWriter, typename Config>
@@ -345,7 +343,7 @@ namespace core::socket::stream {
             case SIGABRT:
                 [[fallthrough]];
             case SIGHUP:
-                LOG(DEBUG) << connectionName << ": Shutting down due to signal '" << strsignal(signum) << "' (SIG"
+                LOG(DEBUG) << connectionName << ": Shutting down due to signal '" << utils::system::strsignal(signum) << "' (SIG"
                            << utils::system::sigabbrev_np(signum) << " [" << signum << "])";
                 break;
             case SIGALRM:

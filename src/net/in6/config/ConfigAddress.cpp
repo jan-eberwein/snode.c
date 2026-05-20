@@ -63,13 +63,14 @@ namespace net::in6::config {
 
     template <template <typename SocketAddress> typename ConfigAddressType>
     ConfigAddressReverse<ConfigAddressType>::ConfigAddressReverse(net::config::ConfigInstance* instance,
-                                                                  const std::string& addressOptionName,
-                                                                  const std::string& addressOptionDescription)
-        : Super(instance, addressOptionName, addressOptionDescription) {
-        numericReverseOpt = Super::addFlag( //
+                                                                  [[maybe_unused]] const std::string& addressOptionName,
+                                                                  [[maybe_unused]] const std::string& addressOptionDescription)
+        : ConfigSection(instance, this)
+        , ConfigAddressType<net::in6::SocketAddress>(this) {
+        numericReverseOpt = addFlag( //
             "--numeric-reverse",
             "Suppress reverse host name lookup",
-            "bool",
+            "BOOL",
             XSTR(IN6_NUMERIC_REVERSE),
             CLI::IsMember({"true", "false"}));
     }
@@ -92,12 +93,10 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddressReverse<ConfigAddressType>& ConfigAddressReverse<ConfigAddressType>::setNumericReverse(bool numeric) {
-        numericReverseOpt //
-            ->default_str(numeric ? "true" : "false")
-            ->clear();
+    ConfigAddressReverse<ConfigAddressType>* ConfigAddressReverse<ConfigAddressType>::setNumericReverse(bool numeric) {
+        setDefaultValue(numericReverseOpt, numeric ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -107,37 +106,42 @@ namespace net::in6::config {
 
     template <template <typename SocketAddress> typename ConfigAddressType>
     ConfigAddress<ConfigAddressType>::ConfigAddress(net::config::ConfigInstance* instance,
-                                                    const std::string& addressOptionName,
-                                                    const std::string& addressOptionDescription)
-        : Super(instance, addressOptionName, addressOptionDescription) {
-        hostOpt = Super::addOption( //
+                                                    [[maybe_unused]] const std::string& addressOptionName,
+                                                    [[maybe_unused]] const std::string& addressOptionDescription)
+        : ConfigSection(instance, this)
+        , ConfigAddressType<net::in6::SocketAddress>(this) {
+        hostOpt = addOption( //
             "--host",
             "Host name or IPv6 address",
             "hostname|IPv6",
             "::",
             CLI::TypeValidator<std::string>());
-        portOpt = Super::addOption( //
+
+        portOpt = addOption( //
             "--port",
             "Port number",
             "port",
             0,
             CLI::Range(std::numeric_limits<uint16_t>::min(), std::numeric_limits<uint16_t>::max()));
-        numericOpt = Super::addFlag( //
+
+        numericOpt = addFlag( //
             "--numeric",
             "Suppress host name lookup",
-            "bool",
+            "BOOL",
             XSTR(IN6_NUMERIC),
             CLI::IsMember({"true", "false"}));
-        numericReverseOpt = Super::addFlag( //
+
+        numericReverseOpt = addFlag( //
             "--numeric-reverse",
             "Suppress reverse host name lookup",
-            "bool",
+            "BOOL",
             XSTR(IN6_NUMERIC_REVERSE),
             CLI::IsMember({"true", "false"}));
-        ipv4MappedOpt = Super::addFlag( //
+
+        ipv4MappedOpt = addFlag( //
             "--ipv4-mapped",
             "Resolve IPv4-mapped IPv6 addresses also",
-            "bool",
+            "BOOL",
             XSTR(IN6_IPV4_MAPPED),
             CLI::IsMember({"true", "false"}));
     }
@@ -178,23 +182,21 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setSocketAddress(const SocketAddress& socketAddress) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setSocketAddress(const SocketAddress& socketAddress) {
         setHost(socketAddress.getHost());
         setPort(socketAddress.getPort());
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setHost(const std::string& ipOrHostname) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setHost(const std::string& ipOrHostname) {
         const utils::PreserveErrno preserveErrno;
 
-        hostOpt //
-            ->default_val(ipOrHostname)
-            ->clear();
-        Super::required(hostOpt, false);
+        setDefaultValue(hostOpt, ipOrHostname);
+        required(hostOpt, false);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -203,15 +205,13 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setPort(uint16_t port) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setPort(uint16_t port) {
         const utils::PreserveErrno preserveErrno;
 
-        portOpt //
-            ->default_val(port)
-            ->clear();
-        Super::required(portOpt, false);
+        setDefaultValue(portOpt, port);
+        required(portOpt, false);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -220,14 +220,12 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setNumeric(bool numeric) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setNumeric(bool numeric) {
         const utils::PreserveErrno preserveErrno;
 
-        numericOpt //
-            ->default_str(numeric ? "true" : "false")
-            ->clear();
+        setDefaultValue(numericOpt, numeric ? "true" : "false");
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -237,28 +235,26 @@ namespace net::in6::config {
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
     void ConfigAddress<ConfigAddressTypeT>::configurable(bool configurable) {
-        Super::setConfigurable(hostOpt, configurable);
-        Super::setConfigurable(portOpt, configurable);
+        this->setConfigurable(hostOpt, configurable);
+        this->setConfigurable(portOpt, configurable);
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setNumericReverse(bool numeric) {
-        numericReverseOpt //
-            ->default_str(numeric ? "true" : "false")
-            ->clear();
-
-        return *this;
-    }
-
-    template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setIpv4Mapped(bool ipv4Mapped) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setNumericReverse(bool numeric) {
         const utils::PreserveErrno preserveErrno;
 
-        ipv4MappedOpt //
-            ->default_val(ipv4Mapped)
-            ->clear();
+        setDefaultValue(numericReverseOpt, numeric ? "true" : "false");
 
-        return *this;
+        return this;
+    }
+
+    template <template <typename SocketAddress> typename ConfigAddressType>
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setIpv4Mapped(bool ipv4Mapped) {
+        const utils::PreserveErrno preserveErrno;
+
+        setDefaultValue(ipv4MappedOpt, ipv4Mapped ? "true" : "false");
+
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -267,10 +263,10 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setAiFlags(int aiFlags) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setAiFlags(int aiFlags) {
         this->aiFlags = aiFlags;
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -279,10 +275,10 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setAiSockType(int aiSockType) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setAiSockType(int aiSockType) {
         this->aiSockType = aiSockType;
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -291,10 +287,10 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setAiProtocol(int aiProtocol) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setAiProtocol(int aiProtocol) {
         this->aiProtocol = aiProtocol;
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -303,17 +299,17 @@ namespace net::in6::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setHostRequired(bool required) {
-        Super::required(hostOpt, required);
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setHostRequired(bool required) {
+        this->required(hostOpt, required);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setPortRequired(bool required) {
-        Super::required(portOpt, required);
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setPortRequired(bool required) {
+        this->required(portOpt, required);
 
-        return *this;
+        return this;
     }
 
 } // namespace net::in6::config

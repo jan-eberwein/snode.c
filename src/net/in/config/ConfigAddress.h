@@ -45,6 +45,7 @@
 #include "net/config/ConfigAddressLocal.h"
 #include "net/config/ConfigAddressRemote.h"
 #include "net/config/ConfigAddressReverse.h"
+#include "net/config/ConfigSection.h"
 #include "net/in/SocketAddress.h"
 
 namespace net::config {
@@ -54,30 +55,27 @@ namespace net::config {
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
 #include <cstdint>
-#include <string>
-
-namespace CLI {
-    class Option;
-} // namespace CLI
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::in::config {
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
-    class ConfigAddressReverse : public ConfigAddressTypeT<net::in::SocketAddress> {
+    class ConfigAddressReverse
+        : public net::config::ConfigSection
+        , public ConfigAddressTypeT<net::in::SocketAddress> {
     private:
         using Super = ConfigAddressTypeT<SocketAddress>;
 
     protected:
-        explicit ConfigAddressReverse(net::config::ConfigInstance* instance,
-                                      const std::string& addressOptionName,
-                                      const std::string& addressOptionDescription);
+        ConfigAddressReverse(net::config::ConfigInstance* instance,
+                             const std::string& addressOptionName,
+                             const std::string& addressOptionDescription);
 
     public:
         SocketAddress getSocketAddress(const SocketAddress::SockAddr& sockAddr, SocketAddress::SockLen sockAddrLen);
 
-        ConfigAddressReverse& setNumericReverse(bool numeric = true);
+        ConfigAddressReverse* setNumericReverse(bool numeric = true);
         bool getNumericReverse() const;
 
     private:
@@ -85,7 +83,9 @@ namespace net::in::config {
     };
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
-    class ConfigAddress : public ConfigAddressTypeT<net::in::SocketAddress> {
+    class ConfigAddress
+        : public net::config::ConfigSection
+        , public ConfigAddressTypeT<net::in::SocketAddress> {
     private:
         using Super = ConfigAddressTypeT<net::in::SocketAddress>;
 
@@ -101,34 +101,34 @@ namespace net::in::config {
         using Super::getSocketAddress;
         SocketAddress getSocketAddress(const SocketAddress::SockAddr& sockAddr, SocketAddress::SockLen sockAddrLen);
 
-        ConfigAddress& setSocketAddress(const SocketAddress& socketAddress);
+        ConfigAddress* setSocketAddress(const SocketAddress& socketAddress);
 
-        ConfigAddress& setHost(const std::string& ipOrHostname);
+        ConfigAddress* setHost(const std::string& ipOrHostname);
         std::string getHost() const;
 
-        ConfigAddress& setPort(uint16_t port);
+        ConfigAddress* setPort(uint16_t port);
         uint16_t getPort() const;
 
-        ConfigAddress& setNumeric(bool numeric = true);
+        ConfigAddress* setNumeric(bool numeric = true);
         bool getNumeric() const;
 
-        ConfigAddress& setNumericReverse(bool numeric = true);
+        ConfigAddress* setNumericReverse(bool numeric = true);
         bool getNumericReverse() const;
 
         void configurable(bool configurable = true) final;
 
     protected:
-        ConfigAddress& setAiFlags(int aiFlags);
+        ConfigAddress* setAiFlags(int aiFlags);
         int getAiFlags() const;
 
-        ConfigAddress& setAiSockType(int aiSocktype);
+        ConfigAddress* setAiSockType(int aiSockType);
         int getAiSockType() const;
 
-        ConfigAddress& setAiProtocol(int aiProtocol);
+        ConfigAddress* setAiProtocol(int aiProtocol);
         int getAiProtocol() const;
 
-        ConfigAddress& setHostRequired(bool required = true);
-        ConfigAddress& setPortRequired(bool required = true);
+        ConfigAddress* setHostRequired(bool required = true);
+        ConfigAddress* setPortRequired(bool required = true);
 
     private:
         CLI::Option* hostOpt = nullptr;

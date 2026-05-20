@@ -41,7 +41,7 @@
 
 #include "ConfigPhysicalSocketClient.h"
 
-#include "net/config/ConfigSection.hpp"
+#include "net/config/ConfigPhysicalSocket.hpp"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -57,7 +57,7 @@
 namespace net::config {
 
     ConfigPhysicalSocketClient::ConfigPhysicalSocketClient(ConfigInstance* instance)
-        : Super(instance) {
+        : ConfigPhysicalSocket(instance, this) {
         reconnectOpt = addFlagFunction( //
             "--reconnect{true}",
             [this]() {
@@ -66,7 +66,7 @@ namespace net::config {
                 }
             },
             "Auto-reconnection in the event of a connection interruption",
-            "bool",
+            "BOOL",
             XSTR(RECONNECT),
             CLI::IsMember({"true", "false"}));
 
@@ -86,10 +86,11 @@ namespace net::config {
             CLI::NonNegativeNumber);
     }
 
-    ConfigPhysicalSocketClient& ConfigPhysicalSocketClient::setReconnect(bool reconnect) {
-        reconnectOpt //
-            ->default_val(reconnect ? "true" : "false")
-            ->clear();
+    ConfigPhysicalSocketClient::~ConfigPhysicalSocketClient() {
+    }
+
+    ConfigPhysicalSocketClient* ConfigPhysicalSocketClient::setReconnect(bool reconnect) {
+        setDefaultValue(reconnectOpt, reconnect ? "true" : "false");
 
         if (reconnect) {
             reconnectTimeOpt->remove_needs(reconnectOpt);
@@ -97,36 +98,31 @@ namespace net::config {
             reconnectTimeOpt->needs(reconnectOpt);
         }
 
-        return *this;
+        return this;
     }
 
     bool ConfigPhysicalSocketClient::getReconnect() const {
         return reconnectOpt->as<bool>();
     }
 
-    ConfigPhysicalSocketClient& ConfigPhysicalSocketClient::setReconnectTime(double time) {
-        reconnectTimeOpt //
-            ->default_val(time)
-            ->clear();
+    ConfigPhysicalSocketClient* ConfigPhysicalSocketClient::setReconnectTime(double time) {
+        setDefaultValue(reconnectTimeOpt, time);
 
-        return *this;
+        return this;
     }
 
     double ConfigPhysicalSocketClient::getReconnectTime() const {
         return reconnectTimeOpt->as<double>();
     }
 
-    ConfigPhysicalSocketClient& ConfigPhysicalSocketClient::setConnectTimeout(const utils::Timeval& connectTimeout) {
-        connectTimeoutOpt //
-            ->default_val(connectTimeout)
-            ->clear();
+    ConfigPhysicalSocketClient* ConfigPhysicalSocketClient::setConnectTimeout(const utils::Timeval& connectTimeout) {
+        setDefaultValue(connectTimeoutOpt, connectTimeout);
 
-        return *this;
+        return this;
     }
 
     utils::Timeval ConfigPhysicalSocketClient::getConnectTimeout() const {
-        const double connectTimeout = connectTimeoutOpt->as<double>();
-        return utils::Timeval(connectTimeout);
+        return utils::Timeval(connectTimeoutOpt->as<double>());
     }
 
 } // namespace net::config

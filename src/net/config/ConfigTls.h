@@ -42,65 +42,69 @@
 #ifndef NET_CONFIG_CONFIGTLS_H
 #define NET_CONFIG_CONFIGTLS_H
 
-#include "net/config/ConfigSection.h"
+#include "net/config/ConfigSection.h" // IWYU pragma: export
 
 namespace net::config {
     class ConfigInstance;
 }
 
-#include "core/socket/stream/tls/ssl_utils.h" // IWYU pragma: export
-
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
-namespace CLI {
-    class Option;
-} // namespace CLI
-
+#include "core/socket/stream/tls/ssl_utils.h" // IWYU pragma: export
 #include "utils/Timeval.h"
+
+#include <string_view>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::config {
 
-    class ConfigTls : protected ConfigSection {
+    class ConfigTls : public ConfigSection {
+    public:
+        constexpr static std::string_view NAME{"tls"};
+        constexpr static std::string_view DESCRIPTION{"Configuration of SSL/TLS behavior"};
+
     protected:
-        explicit ConfigTls(ConfigInstance* instance);
+        template <typename ConcretConfigTls>
+        explicit ConfigTls(ConfigInstance* instance, ConcretConfigTls section);
+
+        ~ConfigTls() override;
 
     public:
-        ConfigTls& setInitTimeout(const utils::Timeval& newInitTimeout);
+        ConfigTls* setInitTimeout(const utils::Timeval& newInitTimeout);
         utils::Timeval getInitTimeout() const;
 
-        ConfigTls& setShutdownTimeout(const utils::Timeval& newShutdownTimeout);
+        ConfigTls* setShutdownTimeout(const utils::Timeval& newShutdownTimeout);
         utils::Timeval getShutdownTimeout() const;
 
-        ConfigTls& setCert(const std::string& cert);
+        ConfigTls* setCert(const std::string& cert);
         std::string getCert() const;
 
-        ConfigTls& setCertKey(const std::string& certKey);
+        ConfigTls* setCertKey(const std::string& certKey);
         std::string getCertKey() const;
 
-        ConfigTls& setCertKeyPassword(const std::string& certKeyPassword);
+        ConfigTls* setCertKeyPassword(const std::string& certKeyPassword);
         std::string getCertKeyPassword() const;
 
-        ConfigTls& setCaCert(const std::string& caCert);
+        ConfigTls* setCaCert(const std::string& caCert);
         std::string getCaCert() const;
 
-        ConfigTls& setCaCertDir(const std::string& caCertDir);
+        ConfigTls* setCaCertDir(const std::string& caCertDir);
         std::string getCaCertDir() const;
 
-        ConfigTls& setCaCertUseDefaultDir(bool set = true);
-        bool getCaCertUseDefaultDir() const;
+        ConfigTls* setCaCertDirUseDefault(bool set = true);
+        bool getCaCertDirUseDefault() const;
 
-        ConfigTls& setCaCertAcceptUnknown(bool set = true);
+        ConfigTls* setCaCertAcceptUnknown(bool set = true);
         bool getCaCertAcceptUnknown() const;
 
-        ConfigTls& setCipherList(const std::string& cipherList);
+        ConfigTls* setCipherList(const std::string& cipherList);
         std::string getCipherList() const;
 
-        ConfigTls& setSslOptions(ssl_option_t sslOptions);
+        ConfigTls* setSslOptions(ssl_option_t sslOptions);
         ssl_option_t getSslOptions() const;
 
-        ConfigTls& setNoCloseNotifyIsEOF(bool noCloseNotifyIsEOF = true);
+        ConfigTls* setNoCloseNotifyIsEOF(bool noCloseNotifyIsEOF = true);
         bool getNoCloseNotifyIsEOF() const;
 
     private:
@@ -116,6 +120,9 @@ namespace net::config {
         CLI::Option* initTimeoutOpt = nullptr;
         CLI::Option* shutdownTimeoutOpt = nullptr;
         bool noCloseNotifyIsEOFOpt = false;
+
+        static float tlsInitTimeout;
+        static float tlsShutdownTimeout;
     };
 
 } // namespace net::config

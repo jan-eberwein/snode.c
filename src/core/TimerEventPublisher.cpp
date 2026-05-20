@@ -95,12 +95,12 @@ namespace core {
         timerList.insert(timer);
     }
 
-    bool TimerEventPublisher::empty() {
+    bool TimerEventPublisher::empty() const {
         return timerList.empty();
     }
 
     void TimerEventPublisher::stop() {
-        for (TimerEventReceiver* timer : timerList) { // cppcheck-suppress constVariablePointer
+        for (TimerEventReceiver* timer : timerList) {
             remove(timer);
         }
 

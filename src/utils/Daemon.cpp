@@ -119,8 +119,8 @@ namespace utils {
             throw DaemonSignaled("Drop session lead", pid);
         }
 
-        struct passwd* pw = nullptr;
-        struct group* gr = nullptr;
+        const struct passwd* pw = nullptr;
+        const struct group* gr = nullptr;
 
         if (((void) (errno = 0), gr = getgrnam(groupName.c_str())) == nullptr) {
             if (errno != 0) {
@@ -141,7 +141,9 @@ namespace utils {
             throw DaemonError("seteuid()");
         } /* Set new file permissions */
         umask(0);
-        chdir("/");
+        if (chdir("/") != 0) {
+            throw DaemonError("chdir()");
+        }
 
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
@@ -217,8 +219,12 @@ namespace utils {
     }
 
     void Daemon::erasePidFile(const std::string& pidFileName) {
-        (void) seteuid(getuid());             // In case we are here seteguid can not fail
-        (void) setegid(getgid());             // In case we are here setegid can not fail
+        if (seteuid(getuid()) != 0) {
+            throw DaemonError("seteuid()");
+        }
+        if (setegid(getgid()) != 0) {
+            throw DaemonError("setegid()");
+        }
         std::filesystem::remove(pidFileName); // In case we are here std::Filesystem::remove can not fail
     }
 

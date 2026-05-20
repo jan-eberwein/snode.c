@@ -41,7 +41,6 @@
 
 #include "core/EventLoop.h"
 
-#include "core/DynamicLoader.h"
 #include "core/EventMultiplexer.h"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
@@ -52,7 +51,6 @@
 #include "utils/system/signal.h"
 
 #include <chrono>
-#include <cstring>
 
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
@@ -62,7 +60,7 @@ namespace core {
     unsigned long EventLoop::tickCounter = 0;
     core::State EventLoop::eventLoopState = State::LOADED;
 
-    static std::string getTickCounterAsString([[maybe_unused]] const el::LogMessage* logMessage) {
+    static std::string getTickCounterAsString() {
         std::string tick = std::to_string(EventLoop::getTickCounter());
 
         if (tick.length() < 13) {
@@ -116,7 +114,7 @@ namespace core {
         struct sigaction oldHupAct{};
         sigaction(SIGHUP, &sact, &oldHupAct);
 
-        logger::Logger::setCustomFormatSpec("%tick", core::getTickCounterAsString);
+        logger::Logger::setTickResolver(core::getTickCounterAsString);
 
         if (utils::Config::init(argc, argv)) {
             eventLoopState = State::INITIALIZED;
@@ -133,7 +131,7 @@ namespace core {
         return eventLoopState == State::INITIALIZED;
     }
 
-    TickStatus EventLoop::_tick(const utils::Timeval& tickTimeOut) {
+    TickStatus EventLoop::_tick(const utils::Timeval& timeOut) {
         TickStatus tickStatus = TickStatus::SUCCESS;
 
         tickCounter++;
@@ -148,7 +146,7 @@ namespace core {
         sigprocmask(SIG_BLOCK, &newSet, &oldSet);
 
         if (eventLoopState == State::RUNNING || eventLoopState == State::STOPPING) {
-            tickStatus = eventMultiplexer.tick(tickTimeOut, oldSet);
+            tickStatus = eventMultiplexer.tick(timeOut, oldSet);
         }
 
         sigprocmask(SIG_SETMASK, &oldSet, nullptr);
@@ -269,6 +267,10 @@ namespace core {
 
         utils::Timeval timeout = 2;
 
+        LOG(TRACE) << "Core: Terminate all stalled DescriptorEventReceivers";
+
+        EventLoop::instance().eventMultiplexer.terminate();
+
         core::TickStatus tickStatus = TickStatus::SUCCESS;
         do {
             auto t1 = std::chrono::system_clock::now();
@@ -282,25 +284,18 @@ namespace core {
             timeout -= seconds.count();
         } while (timeout > 0 && (tickStatus == TickStatus::SUCCESS));
 
-        LOG(TRACE) << "Core: Terminate all stalled DescriptorEventReceivers";
-
-        EventLoop::instance().eventMultiplexer.terminate();
-
-        LOG(TRACE) << "Core: Close all libraries opened during runtime";
-
-        DynamicLoader::execDlCloseAll();
-
-        LOG(TRACE) << "Core:: Clean up the filesystem";
+        LOG(TRACE) << "Core: Shutdown config system";
 
         utils::Config::terminate();
 
-        LOG(TRACE) << "Core:: All resources released";
+        LOG(TRACE) << "Core: All resources released";
 
         LOG(TRACE) << "SNode.C: Ended ... BYE";
     }
 
     void EventLoop::stoponsig(int sig) {
-        LOG(TRACE) << "Core: Received signal '" << strsignal(sig) << "' (SIG" << utils::system::sigabbrev_np(sig) << " = " << sig << ")";
+        LOG(TRACE) << "Core: Received signal '" << utils::system::strsignal(sig) << "' (SIG" << utils::system::sigabbrev_np(sig) << " = "
+                   << sig << ")";
         stopsig = sig;
         stop();
     }

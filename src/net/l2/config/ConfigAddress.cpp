@@ -51,25 +51,53 @@
 
 #include "utils/PreserveErrno.h"
 
+#include <limits>
+#include <regex>
+
 #endif /* DOXYGEN_SHOULD_SKIP_THIS */
 
 namespace net::l2::config {
 
     template <template <typename SocketAddress> typename ConfigAddressType>
+    ConfigAddressReverse<ConfigAddressType>::ConfigAddressReverse(net::config::ConfigInstance* instance,
+                                                                  [[maybe_unused]] const std::string& addressOptionName,
+                                                                  [[maybe_unused]] const std::string& addressOptionDescription)
+        : ConfigSection(instance, this)
+        , ConfigAddressType<net::l2::SocketAddress>(this) {
+    }
+
+    template <template <typename SocketAddress> typename ConfigAddressType>
     ConfigAddress<ConfigAddressType>::ConfigAddress(net::config::ConfigInstance* instance,
-                                                    const std::string& addressOptionName,
-                                                    const std::string& addressOptionDescription)
-        : Super(instance, addressOptionName, addressOptionDescription) {
-        btAddressOpt = Super::addOption( //
+                                                    [[maybe_unused]] const std::string& addressOptionName,
+                                                    [[maybe_unused]] const std::string& addressOptionDescription)
+        : ConfigSection(instance, this)
+        , ConfigAddressType<net::l2::SocketAddress>(this) {
+        btAddressOpt = addOption( //
             "--host",
-            "Bluetooth address",
-            "xx:xx:xx:xx:xx:xx",
+            "Bluetooth address (format 01:23:45:67:89:AB)",
+            "address",
             "00:00:00:00:00:00",
-            CLI::TypeValidator<std::string>());
-        psmOpt = Super::addOption( //
+            CLI::Validator(
+                [](std::string& s) -> std::string {
+                    // Classic 48-bit Bluetooth/MAC style: "01:23:45:67:89:AB"
+                    static const std::regex re(R"(^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$)");
+
+                    if (std::regex_match(s, re)) {
+                        return {}; // OK
+                    }
+
+                    return "Invalid Bluetooth address. Expected format like \"01:23:45:67:89:AB\" "
+                           "(6 hex octets separated by ':').";
+                },
+                "BT_ADDR")
+                .name("BT_ADDR"));
+
+        psmOpt = addOption( //
             "--psm",
             "Protocol service multiplexer",
-            "psm");
+            "psm",
+            "0",
+            CLI::Range(std::numeric_limits<uint16_t>::min(), std::numeric_limits<uint16_t>::max()));
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -81,23 +109,21 @@ namespace net::l2::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setSocketAddress(const SocketAddress& socketAddress) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setSocketAddress(const SocketAddress& socketAddress) {
         setBtAddress(socketAddress.getBtAddress());
         setPsm(socketAddress.getPsm());
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setBtAddress(const std::string& btAddress) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setBtAddress(const std::string& btAddress) {
         const utils::PreserveErrno preserveErrno;
 
-        btAddressOpt //
-            ->default_val(btAddress)
-            ->clear();
-        Super::required(btAddressOpt, false);
+        setDefaultValue(btAddressOpt, btAddress);
+        required(btAddressOpt, false);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -106,15 +132,13 @@ namespace net::l2::config {
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setPsm(uint16_t psm) {
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setPsm(uint16_t psm) {
         const utils::PreserveErrno preserveErrno;
 
-        psmOpt //
-            ->default_val(psm)
-            ->clear();
-        Super::required(psmOpt, false);
+        setDefaultValue(psmOpt, psm);
+        required(psmOpt, false);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
@@ -124,22 +148,22 @@ namespace net::l2::config {
 
     template <template <typename SocketAddressT> typename ConfigAddressTypeT>
     void ConfigAddress<ConfigAddressTypeT>::configurable(bool configurable) {
-        Super::setConfigurable(btAddressOpt, configurable);
-        Super::setConfigurable(psmOpt, configurable);
+        this->setConfigurable(btAddressOpt, configurable);
+        this->setConfigurable(psmOpt, configurable);
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setBtAddressRequired(bool required) {
-        Super::required(btAddressOpt, required);
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setBtAddressRequired(bool required) {
+        this->required(btAddressOpt, required);
 
-        return *this;
+        return this;
     }
 
     template <template <typename SocketAddress> typename ConfigAddressType>
-    ConfigAddress<ConfigAddressType>& ConfigAddress<ConfigAddressType>::setPsmRequired(bool required) {
-        Super::required(psmOpt, required);
+    ConfigAddress<ConfigAddressType>* ConfigAddress<ConfigAddressType>::setPsmRequired(bool required) {
+        this->required(psmOpt, required);
 
-        return *this;
+        return this;
     }
 
 } // namespace net::l2::config

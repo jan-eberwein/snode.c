@@ -41,7 +41,7 @@
 
 #include "ConfigPhysicalSocketServer.h"
 
-#include "net/config/ConfigSection.hpp"
+#include "net/config/ConfigPhysicalSocket.hpp"
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
 
@@ -52,20 +52,20 @@
 namespace net::config {
 
     ConfigPhysicalSocketServer::ConfigPhysicalSocketServer(ConfigInstance* instance)
-        : Super(instance) {
+        : ConfigPhysicalSocket(instance, this) {
         backlogOpt = addOption( //
             "--backlog",
             "Listen backlog",
             "backlog",
             BACKLOG,
-            CLI::PositiveNumber);
+            CLI::TypeValidator<int>());
 
         acceptsPerTickOpt = addOption( //
             "--accepts-per-tick",
             "Accepts per tick",
             "number",
             ACCEPTS_PER_TICK,
-            CLI::PositiveNumber);
+            CLI::TypeValidator<int>());
 
         acceptTimeoutOpt = addOption( //
             "--accept-timeout",
@@ -75,36 +75,33 @@ namespace net::config {
             CLI::NonNegativeNumber);
     }
 
+    ConfigPhysicalSocketServer::~ConfigPhysicalSocketServer() {
+    }
+
     int ConfigPhysicalSocketServer::getBacklog() const {
         return backlogOpt->as<int>();
     }
 
-    ConfigPhysicalSocketServer& ConfigPhysicalSocketServer::setBacklog(int newBacklog) {
-        backlogOpt //
-            ->default_val(newBacklog)
-            ->clear();
+    ConfigPhysicalSocketServer* ConfigPhysicalSocketServer::setBacklog(int newBacklog) {
+        setDefaultValue(backlogOpt, newBacklog);
 
-        return *this;
+        return this;
     }
 
     int ConfigPhysicalSocketServer::getAcceptsPerTick() const {
         return acceptsPerTickOpt->as<int>();
     }
 
-    ConfigPhysicalSocketServer& ConfigPhysicalSocketServer::setAcceptsPerTick(int acceptsPerTickSet) {
-        acceptsPerTickOpt //
-            ->default_val(acceptsPerTickSet)
-            ->clear();
+    ConfigPhysicalSocketServer* ConfigPhysicalSocketServer::setAcceptsPerTick(int acceptsPerTickSet) {
+        setDefaultValue(acceptsPerTickOpt, acceptsPerTickSet);
 
-        return *this;
+        return this;
     }
 
-    ConfigPhysicalSocketServer& ConfigPhysicalSocketServer::setAcceptTimeout(const utils::Timeval& acceptTimeout) {
-        acceptTimeoutOpt //
-            ->default_val(acceptTimeout)
-            ->clear();
+    ConfigPhysicalSocketServer* ConfigPhysicalSocketServer::setAcceptTimeout(const utils::Timeval& acceptTimeout) {
+        setDefaultValue(acceptTimeoutOpt, acceptTimeout);
 
-        return *this;
+        return this;
     }
 
     utils::Timeval ConfigPhysicalSocketServer::getAcceptTimeout() const {
