@@ -15,6 +15,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "web/http/http_utils.h"
 
 namespace snodec {
     namespace auth {
@@ -149,7 +150,9 @@ namespace snodec {
             std::string renderLoginButtons(const std::string& idpBaseUrl,
                                             const std::string& clientId,
                                             const std::string& redirectUri,
-                                            const std::string& state) const {
+                                            const std::string& state,
+                                            const std::string& codeChallenge,
+                                            const std::string& codeChallengeMethod) const {
                 auto enabled = getEnabledProviders();
                 if (enabled.empty()) {
                     return "";
@@ -167,6 +170,8 @@ namespace snodec {
                          +  "?client_id=" + clientId
                          +  "&redirect_uri=" + redirectUri
                          +  "&state=" + state
+                         +  "&code_challenge=" + httputils::url_encode(codeChallenge)
+                         +  "&code_challenge_method=" + httputils::url_encode(codeChallengeMethod)
                          +  "\" class=\"btn\" style=\"display:flex;align-items:center;"
                          +  "justify-content:center;gap:10px;background:" + p.buttonColor
                          +  ";color:" + p.buttonTextColor

@@ -224,6 +224,7 @@ namespace snodec {
             if (outClaims.username.empty()) {
                 outClaims.username = getJsonString(payloadJson, "preferred_username");
             }
+            outClaims.email = getJsonString(payloadJson, "email");
             std::string mfaVer = getJsonString(payloadJson, "mfa_verified");
             outClaims.mfaVerified = (mfaVer == "true");
             outClaims.scopes = getJsonStringArray(payloadJson, "scope"); // or scopes

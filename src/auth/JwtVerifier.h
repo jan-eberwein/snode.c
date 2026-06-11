@@ -13,6 +13,7 @@ namespace snodec {
         struct JwtClaims {
             std::string subject;
             std::string username;
+            std::string email;
             std::vector<std::string> scopes;
             std::chrono::system_clock::time_point expiresAt;
             std::string issuer;

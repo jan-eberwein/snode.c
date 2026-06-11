@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
 
-if(NOT SNODEC_SSO_MFA)
+option(SNODEC_BUILD_LOCAL_IDP "Build the local IdP (disable for router deployments)" OFF)
+
+if(NOT SNODEC_SSO_MFA OR NOT SNODEC_BUILD_LOCAL_IDP)
     return()
 endif()
 

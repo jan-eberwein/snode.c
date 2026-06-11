@@ -35,6 +35,21 @@ static std::string loadPubKeyFile(const std::string& path) {
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
 
+static std::string formatUserDisplayName(const std::string& username, const std::string& email) {
+    if (username.empty()) return email;
+    std::string lower = username;
+    for (auto& c : lower) c = std::tolower(c);
+    bool isPlaceholder = (lower == "google_user" || lower == "google user" || lower == "googleuser" ||
+                          lower.rfind("user_", 0) == 0 || lower.rfind("google_", 0) == 0);
+    if (isPlaceholder && !email.empty()) {
+        return email;
+    }
+    if (!email.empty()) {
+        return username + " (" + email + ")";
+    }
+    return username;
+}
+
 int main(int argc, char* argv[]) {
     core::SNodeC::init(argc, argv);
     express::legacy::in::WebApp app("SSO-MFA-Test");
@@ -69,8 +84,9 @@ int main(int argc, char* argv[]) {
         const char* val = std::getenv(name);
         return val ? std::string(val) : def;
     };
-    std::string idpIssuer      = getEnv("IDP_ISSUER",    "https://idp.snodec.local");
-    std::string idpBaseUrl     = getEnv("IDP_BASE_URL",  "http://localhost:" + std::to_string(IDP_PORT));
+    std::string idpIssuer      = getEnv("IDP_ISSUER",    "https://auth.janeberwein.at");
+    std::string idpBaseUrl     = getEnv("IDP_BASE_URL",  "https://auth.janeberwein.at");
+    std::string appBaseUrl     = getEnv("APP_BASE_URL",  "http://localhost:" + std::to_string(APP_PORT));
     std::string webappClientId = getEnv("WEBAPP_CLIENT_ID", "snodec-webapp");
 
     // ── Middleware ─────────────────────────────────────────────────────────────
@@ -119,6 +135,7 @@ main{max-width:960px;margin:0 auto;padding:40px 24px}
 .tile-sub{font-size:0.8rem;color:#6b7280;margin-top:4px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
 .green{color:#4ade80}.green .dot,.dot-green{background:#22c55e}
+.orange{color:#fb923c}.orange .dot,.dot-orange{background:#f97316}
 .info-row{display:flex;justify-content:space-between;align-items:center;
   padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.06);font-size:0.9rem}
 .info-row:last-child{border:0}
@@ -216,7 +233,7 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
     // ========== ROUTES ==========
 
     // GET / — auto-redirect to SSO if no token, else show dashboard
-    app.get("/", [&buildPage, &jwtVerifier] APPLICATION(req, res) {
+    app.get("/", [&buildPage, &jwtVerifier, idpBaseUrl, appBaseUrl] APPLICATION(req, res) {
         std::string token = req->cookie("access_token");
         if (token.empty()) {
             res->redirect("/login");
@@ -226,8 +243,10 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
         snodec::auth::JwtClaims claims;
         std::string err;
         bool mfaVerified = false;
+        std::string userEmail;
         if (jwtVerifier.verify(token, claims, err)) {
             mfaVerified = claims.mfaVerified;
+            userEmail = claims.email;
         }
 
         std::string mfaStatus = mfaVerified ? "Verified" : "Single Factor";
@@ -235,7 +254,24 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
         std::string mfaDot = mfaVerified ? "dot-green" : "dot-orange";
         std::string mfaSub = mfaVerified ? "JWT · SSO · TOTP" : "JWT · SSO (No MFA)";
 
+        std::string alertBox = "";
+        if (!mfaVerified) {
+            alertBox = 
+                "<div style=\"background:rgba(249,115,22,0.1); border:1.5px solid rgba(249,115,22,0.35); "
+                "border-radius:12px; padding:16px; margin-bottom:28px; display:flex; align-items:center; gap:14px; color:#ffedd5; font-size:0.92rem; text-align:left;\">"
+                "<svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#f97316\" stroke-width=\"2\" style=\"flex-shrink:0;\">"
+                "<path d=\"M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z\"/>"
+                "<line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"13\"/>"
+                "<line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>"
+                "</svg>"
+                "<div><strong>Multi-Factor Authentication (MFA) is not active.</strong> "
+                "Your account is currently secured with a single factor. To add a second factor, please "
+                "<a href=\"" + idpBaseUrl + "/settings\" style=\"color:#fb923c; text-decoration:underline; font-weight:600;\">configure MFA in your Account Settings on the IdP</a>.</div>"
+                "</div>";
+        }
+
         std::string body =
+            alertBox +
             "<h1 class='page-title'>Dashboard</h1>"
             "<p class='page-subtitle'>You are authenticated via the SNode.C Identity Provider</p>"
             "<div class='grid'>"
@@ -264,7 +300,7 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
             "<div class='card'>"
               "<div class='info-row'>"
                 "<span class='info-label'>Identity Provider</span>"
-                "<span class='green'><span class='dot dot-green'></span>Online · localhost:8083</span>"
+                "<span class='green'><span class='dot dot-green'></span>Online · " + idpBaseUrl + "</span>"
               "</div>"
               "<div class='info-row'>"
                 "<span class='info-label'>MFA Enforcement</span>"
@@ -272,20 +308,22 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
               "</div>"
               "<div class='info-row'>"
                 "<span class='info-label'>Protected App</span>"
-                "<span class='green'><span class='dot dot-green'></span>Online · localhost:8055</span>"
+                "<span class='green'><span class='dot dot-green'></span>Online · " + appBaseUrl + "</span>"
               "</div>"
             "</div>"
             "<div class='actions'>"
               "<a href='/' class='btn btn-secondary'>Refresh Dashboard</a>"
-              "<a href='http://localhost:8083/dashboard' class='btn btn-secondary' target='_blank'>"
+              + std::string(mfaVerified ? "" : "<a href='" + idpBaseUrl + "/settings' class='btn btn-primary' target='_blank'>Configure MFA (IdP Settings)</a>") +
+              "<a href='" + idpBaseUrl + "/dashboard' class='btn btn-secondary' target='_blank'>"
                 "Open IdP Dashboard</a>"
             "</div>";
 
-        res->send(buildPage("Dashboard", body, claims.username));
+        std::string headerName = formatUserDisplayName(claims.username, userEmail);
+        res->send(buildPage("Dashboard", body, headerName));
     });
 
     // GET /login — initiate OAuth2 + PKCE flow
-    app.get("/login", [&generatePkce] APPLICATION(req, res) {
+    app.get("/login", [&generatePkce, idpBaseUrl, appBaseUrl] APPLICATION(req, res) {
         std::string verifier, challenge;
         generatePkce(verifier, challenge);
 
@@ -296,9 +334,9 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
                  "; Path=/; HttpOnly; SameSite=Lax; Max-Age=600" + secureFlag);
 
         std::stringstream authUrl;
-        authUrl << "http://localhost:" << IDP_PORT << "/oauth2/authorize"
+        authUrl << idpBaseUrl << "/oauth2/authorize"
                 << "?client_id=" << "snodec-webapp"
-                << "&redirect_uri=http://localhost:" << APP_PORT << "/auth/callback"
+                << "&redirect_uri=" << appBaseUrl << "/auth/callback"
                 << "&response_type=code"
                 << "&state=%2F"
                 << "&code_challenge=" << challenge
@@ -311,23 +349,25 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
     app.get("/auth/callback", callbackHandler);
 
     // GET /auth/logout — clear local token, then chain to IdP for global SLO
-    app.get("/auth/logout", [] APPLICATION(req, res) {
+    app.get("/auth/logout", [idpBaseUrl, appBaseUrl] APPLICATION(req, res) {
         const char* httpsEnv = std::getenv("HTTPS_ENABLED");
         std::string secureFlag = (httpsEnv && std::string(httpsEnv) == "true") ? "; Secure" : "";
         res->set("Set-Cookie",
                  "access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax" + secureFlag);
 
         std::stringstream logoutUrl;
-        logoutUrl << "http://localhost:" << IDP_PORT << "/auth/logout"
-                  << "?redirect_uri=http://localhost:" << APP_PORT << "/";
+        logoutUrl << idpBaseUrl << "/auth/logout"
+                  << "?redirect_uri=" << appBaseUrl << "/";
         res->redirect(logoutUrl.str());
     });
 
     // GET /profile — protected, shows JWT-extracted username
     app.get("/profile", authMiddleware, [&buildPage] APPLICATION(req, res) {
-        std::string username;
+        std::string username, email;
         req->getAttribute<std::string>(
             [&username](std::string& val) { username = val; }, "X-Username");
+        req->getAttribute<std::string>(
+            [&email](std::string& val) { email = val; }, "X-Email");
         bool mfaVerified = false;
         req->getAttribute<bool>([&mfaVerified](bool val) { mfaVerified = val; }, "X-MfaVerified");
 
@@ -336,8 +376,12 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
              << "<p class='page-subtitle'>Your identity as verified by the SNode.C IdP</p>"
              << "<div class='card'>"
              << "<div class='info-row'><span class='info-label'>Username</span>"
-             << "<span>" << (username.empty() ? "Unknown" : username) << "</span></div>"
-             << "<div class='info-row'><span class='info-label'>Authentication</span>"
+             << "<span>" << (username.empty() ? "Unknown" : username) << "</span></div>";
+        if (!email.empty()) {
+            body << "<div class='info-row'><span class='info-label'>Email Address</span>"
+                 << "<span>" << email << "</span></div>";
+        }
+        body << "<div class='info-row'><span class='info-label'>Authentication</span>"
              << "<span class='green'><span class='dot dot-green'></span>JWT + SSO</span></div>"
              << "<div class='info-row'><span class='info-label'>Second Factor Status</span>"
              << "<span class='" << (mfaVerified ? "green" : "orange") << "'><span class='dot " << (mfaVerified ? "dot-green" : "dot-orange") << "'></span>"
@@ -347,14 +391,17 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
              << "</div>"
              << "<div class='actions'><a href='/' class='btn btn-secondary'>← Dashboard</a></div>";
 
-        res->send(buildPage("Profile", body.str(), username));
+        std::string headerName = formatUserDisplayName(username, email);
+        res->send(buildPage("Profile", body.str(), headerName));
     });
 
     // GET /mfa/status — protected, shows MFA info
     app.get("/mfa/status", authMiddleware, [&buildPage] APPLICATION(req, res) {
-        std::string username;
+        std::string username, email;
         req->getAttribute<std::string>(
             [&username](std::string& val) { username = val; }, "X-Username");
+        req->getAttribute<std::string>(
+            [&email](std::string& val) { email = val; }, "X-Email");
         bool mfaVerified = false;
         req->getAttribute<bool>([&mfaVerified](bool val) { mfaVerified = val; }, "X-MfaVerified");
 
@@ -373,7 +420,8 @@ footer{text-align:center;padding:24px;font-size:0.78rem;color:#374151;
              << "</div>"
              << "<div class='actions'><a href='/' class='btn btn-secondary'>← Dashboard</a></div>";
 
-        res->send(buildPage("MFA Status", body.str(), username));
+        std::string headerName = formatUserDisplayName(username, email);
+        res->send(buildPage("MFA Status", body.str(), headerName));
     });
 
     // ── Start server ──────────────────────────────────────────────────────────

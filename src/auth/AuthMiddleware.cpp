@@ -42,7 +42,7 @@ namespace snodec {
                     userContext.id = claims.subject;
                     userContext.username = claims.username;
                     userContext.scopes = claims.scopes;
-                    // userContext.email = claims.email; // TODO: Add email to JwtClaims
+                    userContext.email = claims.email;
 
                     req->setAttribute<UserContext>(userContext);
                     next();

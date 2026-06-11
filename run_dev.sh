@@ -11,6 +11,14 @@ BUILD_DIR="$SCRIPT_DIR/build"
 IDP_BIN="$BUILD_DIR/src/apps/auth_idp/auth_idp"
 WEBAPP_BIN="$BUILD_DIR/src/apps/protected_webapp/protected_webapp"
 
+# Load environment variables from .env file if it exists
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    echo "Loading environment variables from $SCRIPT_DIR/.env"
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 # Ports used by our services
 IDP_PORT=8083
 WEBAPP_PORT=8055
@@ -119,7 +127,7 @@ if [[ "$RUN_ONLY" == false ]]; then
     print_header "Configuring with CMake"
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
-    cmake ..
+    cmake -DSNODEC_SSO_MFA=ON -DSNODEC_BUILD_LOCAL_IDP=ON ..
 
     print_header "Building project"
     cmake --build . -j$(sysctl -n hw.ncpu)

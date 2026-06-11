@@ -46,6 +46,9 @@ namespace snodec {
             ss << "\"nbf\":" << now << ",";  // Not Before (RFC 7519 §4.1.5)
 
             ss << "\"username\":\"" << claims.username << "\",";
+            if (!claims.email.empty()) {
+                ss << "\"email\":\"" << claims.email << "\",";
+            }
             ss << "\"mfa_verified\":" << (claims.mfaVerified ? "true" : "false") << ",";
 
             ss << "\"scope\":[";

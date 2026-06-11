@@ -51,6 +51,35 @@ using namespace snodec::auth;
 using namespace snodec::database::sqlite;
 using json = nlohmann::json;
 
+// Helper functions for Federated Login (executing curl for token exchange and userinfo)
+#include <cstdio>
+#include <array>
+
+static std::string escapeShellArg(const std::string& arg) {
+    std::string escaped;
+    for (char c : arg) {
+        if (c == '\'') {
+            escaped += "'\\''";
+        } else {
+            escaped += c;
+        }
+    }
+    return "'" + escaped + "'";
+}
+
+static std::string execCommand(const std::string& cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed to run command: " + cmd);
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
 // ============================================================================
 // Global state
 // ============================================================================
@@ -504,6 +533,21 @@ static const char* ICONS = R"(
 </svg>
 )";
 
+static std::string formatUserDisplayName(const std::string& username, const std::string& email) {
+    if (username.empty()) return email;
+    std::string lower = username;
+    for (auto& c : lower) c = std::tolower(c);
+    bool isPlaceholder = (lower == "google_user" || lower == "google user" || lower == "googleuser" ||
+                          lower.rfind("user_", 0) == 0 || lower.rfind("google_", 0) == 0);
+    if (isPlaceholder && !email.empty()) {
+        return email;
+    }
+    if (!email.empty()) {
+        return username + " (" + email + ")";
+    }
+    return username;
+}
+
 static std::string
 buildPage(const std::string& title, const std::string& body, bool isAuthenticated = false, const std::string& username = "") {
     std::string accountBtn = "";
@@ -516,7 +560,8 @@ buildPage(const std::string& title, const std::string& body, bool isAuthenticate
 
     std::string navLinks = isAuthenticated ? accountBtn + "<a href=\"/dashboard\">Dashboard</a>"
                                                           "<a href=\"/settings\">Settings</a>"
-                                                          "<form method=\"POST\" action=\"/auth/logout\" style=\"display:inline;\">"
+                                                          "<a href=\"http://localhost:8055/\" style=\"color:#3b82f6; font-weight:600; margin-left:8px;\">Protected WebApp</a>"
+                                                          "<form method=\"POST\" action=\"/auth/logout\" style=\"display:inline; margin-left:8px;\">"
                                                           "<button type=\"submit\" class=\"btn btn-red\" style=\"padding:6px 12px; "
                                                           "font-size:0.85rem; border-radius:6px;\">Sign Out</button></form>"
                                            : "<a href=\"/auth/login\">Sign In</a><a href=\"/auth/register\">Create Account</a>";
@@ -564,14 +609,14 @@ static std::string loginPage(const std::string& error,
                              const std::string& codeChallengeMethod,
                              const std::string& prefillUsername = "") {
     std::string regUrl = "/auth/register?client_id=" + clientId + "&redirect_uri=" + httputils::url_encode(redirectUri) +
-                         "&state=" + state + "&scope=" + scope;
+                         "&state=" + state + "&scope=" + scope + "&code_challenge=" + codeChallenge + "&code_challenge_method=" + codeChallengeMethod;
     std::string err = error.empty() ? "" : "<div class=\"error-box\">" + error + "</div>\n";
 
     // Render social login buttons if any providers are enabled
     std::string socialButtons;
     if (g_federatedRegistry != nullptr) {
         socialButtons = g_federatedRegistry->renderLoginButtons(
-            g_idpBaseUrl, clientId, redirectUri, state);
+            g_idpBaseUrl, clientId, redirectUri, state, codeChallenge, codeChallengeMethod);
     }
 
     std::string body = "<div class=\"card\">\n"
@@ -626,9 +671,12 @@ static std::string registerPage(const std::string& error,
                                 const std::string& clientId,
                                 const std::string& redirectUri,
                                 const std::string& state,
-                                const std::string& scope) {
+                                const std::string& scope,
+                                const std::string& codeChallenge,
+                                const std::string& codeChallengeMethod) {
     std::string loginUrl =
-        "/auth/login?client_id=" + clientId + "&redirect_uri=" + httputils::url_encode(redirectUri) + "&state=" + state + "&scope=" + scope;
+        "/auth/login?client_id=" + clientId + "&redirect_uri=" + httputils::url_encode(redirectUri) +
+        "&state=" + state + "&scope=" + scope + "&code_challenge=" + codeChallenge + "&code_challenge_method=" + codeChallengeMethod;
     std::string err = error.empty() ? "" : "<div class=\"error-box\">" + error + "</div>\n";
 
     std::string body = "<div class=\"card\">\n"
@@ -648,6 +696,12 @@ static std::string registerPage(const std::string& error,
                        "\">\n"
                        "<input type=\"hidden\" name=\"scope\" value=\"" +
                        scope +
+                       "\">\n"
+                       "<input type=\"hidden\" name=\"code_challenge\" value=\"" +
+                       codeChallenge +
+                       "\">\n"
+                       "<input type=\"hidden\" name=\"code_challenge_method\" value=\"" +
+                       codeChallengeMethod +
                        "\">\n"
                        "<div class=\"form-group\">\n"
                        "<label>Username</label>\n"
@@ -733,14 +787,17 @@ static std::string mfaPage(const std::string& error,
 static std::string
 enrollTotpPage(const std::string& userId, const std::string& secret, const std::string& uri, 
                const std::string& clientId, const std::string& redirectUri, const std::string& state, 
-               const std::string& scope, const std::string& error = "") {
+               const std::string& scope, const std::string& codeChallenge, const std::string& codeChallengeMethod,
+               const std::string& error = "") {
     std::string err = error.empty() ? "" : "<div class=\"error-box\">" + error + "</div>\n";
 
     std::string skipUrl = "/auth/enroll/totp/skip?user_id=" + userId + 
                           "&client_id=" + httputils::url_encode(clientId) + 
                           "&redirect_uri=" + httputils::url_encode(redirectUri) + 
                           "&state=" + httputils::url_encode(state) + 
-                          "&scope=" + httputils::url_encode(scope);
+                          "&scope=" + httputils::url_encode(scope) +
+                          "&code_challenge=" + httputils::url_encode(codeChallenge) +
+                          "&code_challenge_method=" + httputils::url_encode(codeChallengeMethod);
 
     std::string body =
         "<div class=\"card\" style=\"max-width:520px;\">\n"
@@ -779,6 +836,8 @@ enrollTotpPage(const std::string& userId, const std::string& secret, const std::
         "<input type=\"hidden\" name=\"redirect_uri\" value=\"" + redirectUri + "\">\n"
         "<input type=\"hidden\" name=\"state\" value=\"" + state + "\">\n"
         "<input type=\"hidden\" name=\"scope\" value=\"" + scope + "\">\n"
+        "<input type=\"hidden\" name=\"code_challenge\" value=\"" + codeChallenge + "\">\n"
+        "<input type=\"hidden\" name=\"code_challenge_method\" value=\"" + codeChallengeMethod + "\">\n"
         "<div class=\"form-group\">\n"
         "<label>Verification Code</label>\n"
         "<input type=\"text\" name=\"code\" placeholder=\"000000\" maxlength=\"6\""
@@ -808,8 +867,38 @@ static std::string landingPage() {
     return buildPage("Welcome", body, false);
 }
 
-static std::string dashboardPage(const std::string& username, int users, int sessions, int tokens, const std::string& uptime) {
+static std::string dashboardPage(const std::string& username, int users, int sessions, int tokens, const std::string& uptime, bool mfaEnabled) {
+    std::string alertBox = "";
+    if (!mfaEnabled) {
+        alertBox = 
+            "<div style=\"background:rgba(249,115,22,0.1); border:1.5px solid rgba(249,115,22,0.35); "
+            "border-radius:12px; padding:16px; margin-bottom:28px; display:flex; align-items:center; gap:14px; color:#ffedd5; font-size:0.92rem; text-align:left;\">"
+            "<svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#f97316\" stroke-width=\"2\" style=\"flex-shrink:0;\">"
+            "<path d=\"M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z\"/>"
+            "<line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"13\"/>"
+            "<line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>"
+            "</svg>"
+            "<div><strong>Multi-Factor Authentication (MFA) is not active.</strong> "
+            "Your account is currently secured with a single factor. To add a second factor, please "
+            "<a href=\"/settings\" style=\"color:#fb923c; text-decoration:underline; font-weight:600;\">configure MFA in your Account Settings</a>.</div>"
+            "</div>";
+    } else {
+        alertBox = 
+            "<div style=\"background:rgba(52,199,89,0.1); border:1.5px solid rgba(52,199,89,0.35); "
+            "border-radius:12px; padding:16px; margin-bottom:28px; display:flex; align-items:center; justify-content:space-between; gap:14px; color:#eafaf1; font-size:0.92rem; text-align:left;\">"
+            "<div style=\"display:flex; align-items:center; gap:14px;\">"
+            "<svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#34c759\" stroke-width=\"2\" style=\"flex-shrink:0;\">"
+            "<path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/>"
+            "<path d=\"M9 11l2 2 4-4\"/>"
+            "</svg>"
+            "<div><strong>Multi-Factor Authentication (MFA) is active.</strong> Your account is fully secured.</div>"
+            "</div>"
+            "<a href=\"/settings/mfa/disable\" class=\"btn btn-red\" style=\"padding: 6px 12px; font-size: 0.85rem; margin: 0; text-decoration: none;\">Disable MFA</a>"
+            "</div>";
+    }
+
     std::string body =
+        alertBox +
         "<div style=\"text-align:center; margin-bottom: 24px;\">\n"
         "  <h1 style=\"color: white; font-weight: 500; letter-spacing: 1px; font-size: 2rem;\">Identity Provider</h1>\n"
         "</div>\n"
@@ -874,15 +963,13 @@ static std::string dashboardPage(const std::string& username, int users, int ses
     return buildPage("Dashboard", body, true, username);
 }
 
-static std::string settingsPage(const std::string& username, bool mfaEnabled, const std::string& userId) {
+static std::string settingsPage(const std::string& username, const std::string& email, bool mfaEnabled, const std::string& userId) {
     std::string mfaStatus = mfaEnabled ? "<div class=\"success-box\"><svg "
                                          "style=\"width:16px;height:16px;fill:currentColor;vertical-align:middle;margin-right:8px;\"><use "
                                          "href=\"#icon-check\"/></svg> Two-Factor Authentication is <strong>Enabled</strong>.</div>"
                                        : "<div class=\"error-box\">Two-Factor Authentication is <strong>Disabled</strong>.</div>";
 
-    std::string mfaAction = mfaEnabled ? "<form method=\"POST\" action=\"/settings/mfa/disable\" onsubmit=\"return confirm('Are you sure "
-                                         "you want to disable 2FA?');\">\n"
-                                         "<button type=\"submit\" class=\"btn btn-red\">Disable 2FA</button>\n</form>\n"
+    std::string mfaAction = mfaEnabled ? "<a href=\"/settings/mfa/disable\" class=\"btn btn-red\" style=\"text-decoration:none;\">Disable 2FA</a>\n"
                                        : "<a href=\"/auth/enroll/totp?user_id=" + userId + "\" class=\"btn\">Enable 2FA</a>\n";
 
     std::string body = "<div class=\"card\">\n"
@@ -894,11 +981,50 @@ static std::string settingsPage(const std::string& username, bool mfaEnabled, co
                        "<input type=\"text\" value=\"" +
                        username +
                        "\" disabled>\n"
-                       "</div>\n"
-                       "<div class=\"divider\"></div>\n"
+                       "</div>\n";
+    if (!email.empty()) {
+        body +=        "<div class=\"form-group\">\n"
+                       "<label>Email Address</label>\n"
+                       "<input type=\"text\" value=\"" +
+                       email +
+                       "\" disabled>\n"
+                       "</div>\n";
+    }
+    body +=            "<div class=\"divider\"></div>\n"
                        "<h3>Security Settings</h3><br>\n" +
                        mfaStatus + mfaAction + "</div>\n";
-    return buildPage("Settings", body, true, username);
+
+    std::string headerName = formatUserDisplayName(username, email);
+    return buildPage("Settings", body, true, headerName);
+}
+
+static std::string mfaDisableConfirmPage(const std::string& error, const std::string& username, const std::string& email) {
+    std::string err = error.empty() ? "" : "<div class=\"error-box\">" + error + "</div>\n";
+
+    std::string body = "<div class=\"card\">\n"
+                       "<svg class=\"logo-icon\" style=\"fill:#ef4444; width:48px; height:48px; margin:0 auto 16px auto; display:block;\"><use href=\"#icon-shield\"/></svg>\n"
+                       "<h1 style=\"text-align:center;\">Disable MFA</h1>\n"
+                       "<p class=\"subtitle\" style=\"text-align:center;\">Confirm your password and MFA code to disable Two-Factor Authentication</p>\n" +
+                       err +
+                       "<form method=\"POST\" action=\"/settings/mfa/disable\">\n"
+                       "<div class=\"form-group\">\n"
+                       "<label>Password</label>\n"
+                       "<input type=\"password\" name=\"password\" placeholder=\"Enter your password\" required autofocus>\n"
+                       "</div>\n"
+                       "<div class=\"form-group\">\n"
+                       "<label>Verification Code</label>\n"
+                       "<input type=\"text\" name=\"code\" placeholder=\"000000\" maxlength=\"6\" "
+                       "pattern=\"[0-9]{6}\" required autocomplete=\"one-time-code\" inputmode=\"numeric\" "
+                       "style=\"font-size:1.8rem;letter-spacing:10px;text-align:center;\">\n"
+                       "</div>\n"
+                       "<button type=\"submit\" class=\"btn btn-red\" style=\"width:100%; margin-top:16px;\">Verify & Disable MFA</button>\n"
+                       "</form>\n"
+                       "<div class=\"links\" style=\"text-align:center; margin-top:16px;\">\n"
+                       "<a href=\"/settings\">Cancel and Return</a>\n"
+                       "</div>\n"
+                       "</div>\n";
+    std::string headerName = formatUserDisplayName(username, email);
+    return buildPage("Disable MFA", body, true, headerName);
 }
 
 static std::string forgotPasswordPage(const std::string& error, const std::string& info) {
@@ -1118,7 +1244,7 @@ int main(int argc, char* argv[]) {
                 return;
             }
             const std::string sep = redirectUri.find('?') == std::string::npos ? "?" : "&";
-            res->redirect(redirectUri + sep + "code=" + code + "&state=" + state);
+            res->redirect(redirectUri + sep + "code=" + httputils::url_encode(code) + "&state=" + httputils::url_encode(state));
         } else {
             // Direct login (IdP dashboard)
             res->redirect("/dashboard");
@@ -1162,9 +1288,11 @@ int main(int argc, char* argv[]) {
         }
 
         std::string username, email;
-        g_db->query("SELECT username, email FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+        int mfaEnabled = 0;
+        g_db->query("SELECT username, email, totp_enabled FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
             username = r.get(0);
             email = r.get(1);
+            mfaEnabled = std::stoi(r.get(2));
         });
 
         int totalUsers = 0, activeSessions = 0, totalTokens = 0;
@@ -1178,7 +1306,8 @@ int main(int argc, char* argv[]) {
             totalTokens = std::stoi(r.get(0));
         });
 
-        res->send(dashboardPage(username, totalUsers, activeSessions, totalTokens, formatUptime()));
+        std::string headerName = formatUserDisplayName(username, email);
+        res->send(dashboardPage(headerName, totalUsers, activeSessions, totalTokens, formatUptime(), mfaEnabled > 0));
     });
 
     // ── GET /settings ─────────────────────────────────────────────────────────
@@ -1189,14 +1318,39 @@ int main(int argc, char* argv[]) {
             return;
         }
 
-        std::string username;
+        std::string username, email;
         int mfaEnabled = 0;
-        g_db->query("SELECT username, totp_enabled FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+        g_db->query("SELECT username, email, totp_enabled FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
             username = r.get(0);
-            mfaEnabled = std::stoi(r.get(1));
+            email = r.get(1);
+            mfaEnabled = std::stoi(r.get(2));
         });
 
-        res->send(settingsPage(username, mfaEnabled > 0, userId));
+        res->send(settingsPage(username, email, mfaEnabled > 0, userId));
+    });
+
+    // ── GET /settings/mfa/disable ─────────────────────────────────────────────
+    app.get("/settings/mfa/disable", [&requireSession] MIDDLEWARE(req, res, next) {
+        std::string userId = requireSession(req, res);
+        if (userId.empty()) {
+            res->redirect("/auth/login");
+            return;
+        }
+
+        std::string username, email;
+        int mfaEnabled = 0;
+        g_db->query("SELECT username, email, totp_enabled FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            username = r.get(0);
+            email = r.get(1);
+            mfaEnabled = std::stoi(r.get(2));
+        });
+
+        if (mfaEnabled <= 0) {
+            res->redirect("/settings");
+            return;
+        }
+
+        res->send(mfaDisableConfirmPage("", username, email));
     });
 
     // ── POST /settings/mfa/disable ────────────────────────────────────────────
@@ -1207,11 +1361,45 @@ int main(int argc, char* argv[]) {
             return;
         }
 
+        auto p = parseBody(req->body);
+        const std::string password = p["password"];
+        const std::string code = p["code"];
+
+        std::string username, email, hash, salt, totpSecret;
+        int mfaEnabled = 0;
+        g_db->query("SELECT username, email, password_hash, password_salt, totp_enabled, totp_secret FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            username = r.get(0);
+            email = r.get(1);
+            hash = r.get(2);
+            salt = r.get(3);
+            mfaEnabled = std::stoi(r.get(4));
+            totpSecret = r.get(5);
+        });
+
+        if (mfaEnabled <= 0) {
+            res->redirect("/settings");
+            return;
+        }
+
+        bool needsMigration = false;
+        if (!verifyPasswordAny(password, hash, salt, needsMigration)) {
+            res->status(400).send(mfaDisableConfirmPage("Invalid password. Please try again.", username, email));
+            return;
+        }
+        if (needsMigration) migratePasswordHash(userId, password);
+
+        std::string decryptedSecret = decryptTotpSecret(totpSecret);
+        if (!Totp::verifyCode(decryptedSecret, code)) {
+            res->status(400).send(mfaDisableConfirmPage("Invalid verification code. Please try again.", username, email));
+            return;
+        }
+
         std::string err;
         if (!g_db->exec("UPDATE user SET totp_enabled=0, totp_secret=NULL WHERE id=?", {userId}, &err)) {
             res->status(500).send(errorPage("DB error: " + err));
             return;
         }
+
         res->redirect("/settings");
     });
 
@@ -1256,17 +1444,24 @@ int main(int argc, char* argv[]) {
             } else {
                 // User is logged in and this is an SSO request. Auto-approve!
                 std::string username;
-                g_db->query("SELECT username FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+                bool totpEnabled = false;
+                g_db->query("SELECT username, totp_enabled FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
                     username = r.get(0);
+                    totpEnabled = (r.get(1) == "1");
                 });
                 
                 if (!username.empty()) {
+                    if (totpEnabled) {
+                        res->send(mfaPage("", userId, clientId, req->query("redirect_uri"), req->query("state"), req->query("scope"), req->query("code_challenge"), req->query("code_challenge_method")));
+                        return;
+                    }
                     finishLogin(res, userId, username, clientId, 
                                 req->query("redirect_uri"), 
                                 req->query("state"), 
                                 req->query("scope"), 
                                 req->query("code_challenge"), 
-                                req->query("code_challenge_method"));
+                                req->query("code_challenge_method"),
+                                false);
                     return;
                 }
             }
@@ -1283,33 +1478,35 @@ int main(int argc, char* argv[]) {
 
     // ── GET /auth/register ────────────────────────────────────────────────────
     app.get("/auth/register", [] MIDDLEWARE(req, res, next) {
-        res->send(registerPage("", req->query("client_id"), req->query("redirect_uri"), req->query("state"), req->query("scope")));
+        res->send(registerPage("", req->query("client_id"), req->query("redirect_uri"), req->query("state"), req->query("scope"),
+                               req->query("code_challenge"), req->query("code_challenge_method")));
     });
 
     // ── POST /auth/register ───────────────────────────────────────────────────
     app.post("/auth/register", [] MIDDLEWARE(req, res, next) {
         auto p = parseBody(req->body);
         const std::string username = p["username"], email = p["email"], password = p["password"], confirmPassword = p["confirm_password"], clientId = p["client_id"],
-                          redirectUri = p["redirect_uri"], state = p["state"], scope = p["scope"];
+                          redirectUri = p["redirect_uri"], state = p["state"], scope = p["scope"],
+                          challenge = p["code_challenge"], method = p["code_challenge_method"];
         if (username.empty() || email.empty() || password.empty() || confirmPassword.empty()) {
-            res->status(400).send(registerPage("All fields are required.", clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("All fields are required.", clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         if (password != confirmPassword) {
-            res->status(400).send(registerPage("Passwords do not match.", clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("Passwords do not match.", clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         // Input length validation (prevent oversized inputs)
         if (username.length() > 64 || email.length() > 254 || password.length() > 128) {
-            res->status(400).send(registerPage("Input too long. Username max 64, email max 254, password max 128 characters.", clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("Input too long. Username max 64, email max 254, password max 128 characters.", clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         if (username.length() < 3) {
-            res->status(400).send(registerPage("Username must be at least 3 characters.", clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("Username must be at least 3 characters.", clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         if (password.length() < 8) {
-            res->status(400).send(registerPage("Password must be at least 8 characters.", clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("Password must be at least 8 characters.", clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         // Check duplicate
@@ -1318,7 +1515,7 @@ int main(int argc, char* argv[]) {
             exists = true;
         });
         if (exists) {
-            res->status(400).send(registerPage("Username or email already taken.", clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("Username or email already taken.", clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         const std::string hash = hashPasswordPbkdf2(password);
@@ -1327,12 +1524,18 @@ int main(int argc, char* argv[]) {
                         " VALUES(?,?,?,?)",
                         {username, email, hash, ""},
                         &err)) {
-            res->status(400).send(registerPage("Registration failed: " + err, clientId, redirectUri, state, scope));
+            res->status(400).send(registerPage("Registration failed: " + err, clientId, redirectUri, state, scope, challenge, method));
             return;
         }
         const std::string userId = std::to_string(g_db->lastInsertRowid());
         // Redirect to TOTP enrollment
-        res->redirect("/auth/enroll/totp?user_id=" + userId + "&client_id=" + clientId + "&redirect_uri=" + httputils::url_encode(redirectUri) + "&state=" + state + "&scope=" + scope);
+        res->redirect("/auth/enroll/totp?user_id=" + userId + 
+                      "&client_id=" + httputils::url_encode(clientId) + 
+                      "&redirect_uri=" + httputils::url_encode(redirectUri) + 
+                      "&state=" + httputils::url_encode(state) + 
+                      "&scope=" + httputils::url_encode(scope) + 
+                      "&code_challenge=" + httputils::url_encode(challenge) + 
+                      "&code_challenge_method=" + httputils::url_encode(method));
     });
 
     // ── POST /auth/login ──────────────────────────────────────────────────────
@@ -1369,7 +1572,7 @@ int main(int argc, char* argv[]) {
                         u.hash = row.get(1);
                         u.salt = row.get(2);
                         u.totpEnabled = (row.get(3) == "1");
-                        u.totpSecret = row.get(4);
+                        u.totpSecret = decryptTotpSecret(row.get(4));
                     });
         bool needsMigration = false;
         if (!found || !verifyPasswordAny(password, u.hash, u.salt, needsMigration)) {
@@ -1420,7 +1623,7 @@ int main(int argc, char* argv[]) {
         g_db->query("SELECT username,totp_secret FROM user WHERE id=? AND totp_enabled=1", {userId}, [&](const SqliteDatabase::Row& row) {
             found = true;
             u.username = row.get(0);
-            u.secret = row.get(1);
+            u.secret = decryptTotpSecret(row.get(1));
         });
         if (!found) {
             if (g_mfaLimiter) {
@@ -1473,11 +1676,17 @@ int main(int argc, char* argv[]) {
         const std::string secret = Totp::generateSecret();
         const std::string uri = QrCodeGenerator::makeTotpOtpAuthUri("SNode.C", username, secret);
 
-        res->send(enrollTotpPage(userId, secret, uri, req->query("client_id"), req->query("redirect_uri"), req->query("state"), req->query("scope")));
+        res->send(enrollTotpPage(userId, secret, uri, 
+                                 req->query("client_id"), 
+                                 req->query("redirect_uri"), 
+                                 req->query("state"), 
+                                 req->query("scope"),
+                                 req->query("code_challenge"),
+                                 req->query("code_challenge_method")));
     });
 
     // ── POST /auth/enroll/totp/verify ─────────────────────────────────────────
-    app.post("/auth/enroll/totp/verify", [] MIDDLEWARE(req, res, next) {
+    app.post("/auth/enroll/totp/verify", [&finishLogin] MIDDLEWARE(req, res, next) {
         auto p = parseBody(req->body);
         const std::string userId = p["user_id"], secret = p["secret"], code = p["code"];
         if (userId.empty() || secret.empty() || code.empty()) {
@@ -1490,21 +1699,48 @@ int main(int argc, char* argv[]) {
                 username = r.get(0);
             });
             const std::string uri = QrCodeGenerator::makeTotpOtpAuthUri("SNode.C", username, secret);
-            res->status(400).send(enrollTotpPage(userId, secret, uri, p["client_id"], p["redirect_uri"], p["state"], p["scope"], "Invalid verification code. Please try again."));
+            res->status(400).send(enrollTotpPage(userId, secret, uri, 
+                                                 p["client_id"], 
+                                                 p["redirect_uri"], 
+                                                 p["state"], 
+                                                 p["scope"], 
+                                                 p["code_challenge"], 
+                                                 p["code_challenge_method"], 
+                                                 "Invalid verification code. Please try again."));
             return;
         }
         std::string err;
-        if (!g_db->exec("UPDATE user SET totp_secret=?,totp_enabled=1 WHERE id=?", {secret, userId}, &err)) {
+        if (!g_db->exec("UPDATE user SET totp_secret=?,totp_enabled=1 WHERE id=?", {encryptTotpSecret(secret), userId}, &err)) {
             res->status(500).send(errorPage("DB error: " + err));
             return;
         }
 
-        // Automatically set session after successful enrollment
-        std::string token = generateRandomString(64);
-        g_db->exec("INSERT INTO session(token, user_id, expires_at) VALUES(?, ?, datetime('now','+24 hours'))", {token, userId}, &err);
-        res->cookie("snodec_session", token, {{"HttpOnly", ""}, {"Path", "/"}, {"Max-Age", "86400"}});
+        std::string username;
+        g_db->query("SELECT username FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            username = r.get(0);
+        });
 
-        res->redirect("/dashboard");
+        finishLogin(res, userId, username, p["client_id"], p["redirect_uri"], p["state"], p["scope"], p["code_challenge"], p["code_challenge_method"], true);
+    });
+
+    // ── GET /auth/enroll/totp/skip ─────────────────────────────────────────────
+    app.get("/auth/enroll/totp/skip", [&finishLogin] MIDDLEWARE(req, res, next) {
+        std::string userId = req->query("user_id");
+        if (userId.empty()) {
+            res->status(400).send(errorPage("Missing user_id."));
+            return;
+        }
+
+        std::string username;
+        g_db->query("SELECT username FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            username = r.get(0);
+        });
+        if (username.empty()) {
+            res->status(404).send(errorPage("User not found."));
+            return;
+        }
+
+        finishLogin(res, userId, username, req->query("client_id"), req->query("redirect_uri"), req->query("state"), req->query("scope"), req->query("code_challenge"), req->query("code_challenge_method"), false);
     });
 
     // ── GET /api/qrcode ───────────────────────────────────────────────────────
@@ -1689,8 +1925,12 @@ int main(int argc, char* argv[]) {
             res->status(400).send(errorPage("Only S256 code_challenge_method is supported (RFC 7636)."));
             return;
         }
-        res->redirect("/auth/login?client_id=" + clientId + "&redirect_uri=" + httputils::url_encode(redirectUri) + "&state=" + state +
-                      "&scope=" + scope + "&code_challenge=" + challenge + "&code_challenge_method=" + method);
+        res->redirect("/auth/login?client_id=" + httputils::url_encode(clientId) + 
+                      "&redirect_uri=" + httputils::url_encode(redirectUri) + 
+                      "&state=" + httputils::url_encode(state) +
+                      "&scope=" + httputils::url_encode(scope) + 
+                      "&code_challenge=" + httputils::url_encode(challenge) + 
+                      "&code_challenge_method=" + httputils::url_encode(method));
     });
 
     // ── OPTIONS /oauth2/token (CORS preflight) ────────────────────────────────
@@ -1746,10 +1986,12 @@ int main(int argc, char* argv[]) {
                       "\"error_description\":\"PKCE verification failed\"}");
             return;
         }
-        // Fetch username
+        // Fetch username and email
         std::string username;
-        g_db->query("SELECT username FROM user WHERE id=?", {cr.userId}, [&](const SqliteDatabase::Row& r) {
+        std::string email;
+        g_db->query("SELECT username, email FROM user WHERE id=?", {cr.userId}, [&](const SqliteDatabase::Row& r) {
             username = r.get(0);
+            email = r.get(1);
         });
         if (username.empty()) {
             res->status(500).set("Content-Type", "application/json").send("{\"error\":\"server_error\"}");
@@ -1765,6 +2007,7 @@ int main(int argc, char* argv[]) {
         claims.audience = clientId;
         claims.expiresAt = std::chrono::system_clock::from_time_t(std::time(nullptr) + 3600);
         claims.username = username;
+        claims.email = email;
         claims.mfaVerified = cr.mfaVerified;
         std::istringstream ss(cr.scope);
         std::string item;
@@ -1812,7 +2055,9 @@ int main(int argc, char* argv[]) {
         std::string clientId = req->query("client_id");
         std::string redirectUri = req->query("redirect_uri");
         std::string originalState = req->query("state");
-        std::string stateParam = clientId + "|" + redirectUri + "|" + originalState;
+        std::string challenge = req->query("code_challenge");
+        std::string method = req->query("code_challenge_method");
+        std::string stateParam = clientId + "|" + redirectUri + "|" + originalState + "|" + challenge + "|" + method;
 
         // Redirect to external provider's authorization endpoint
         std::string authUrl = provider->authorizationUrl +
@@ -1853,49 +2098,177 @@ int main(int argc, char* argv[]) {
         }
 
         // Parse state to recover original OAuth2 parameters
-        std::string clientId, redirectUri, originalState;
+        std::string clientId, redirectUri, originalState, challenge, method;
         {
-            size_t p1 = stateParam.find('|');
-            size_t p2 = stateParam.find('|', p1 + 1);
-            if (p1 != std::string::npos && p2 != std::string::npos) {
-                clientId = stateParam.substr(0, p1);
-                redirectUri = stateParam.substr(p1 + 1, p2 - p1 - 1);
-                originalState = stateParam.substr(p2 + 1);
+            std::vector<std::string> parts;
+            size_t start = 0;
+            size_t end = stateParam.find('|');
+            while (end != std::string::npos) {
+                parts.push_back(stateParam.substr(start, end - start));
+                start = end + 1;
+                end = stateParam.find('|', start);
+            }
+            parts.push_back(stateParam.substr(start));
+
+            if (parts.size() >= 3) {
+                clientId = parts[0];
+                redirectUri = parts[1];
+                originalState = parts[2];
+            }
+            if (parts.size() >= 5) {
+                challenge = parts[3];
+                method = parts[4];
             }
         }
 
-        // NOTE: In a production implementation, the IdP would exchange the
-        // authorization code for an access token via a server-side HTTP POST
-        // to the provider's token endpoint, then fetch user info. Since SNode.C's
-        // HTTP client may not be available here, we present an intermediate page
-        // that informs the user. For a full implementation, an HTTP client
-        // library (e.g., libcurl) would be used.
-        //
-        // For demonstration purposes, we create/link a local account using the
-        // provider name and show the user how the flow would complete.
+        // Perform real Google token exchange and userinfo fetch
+        std::string targetEmail;
+        std::string targetUsername;
 
-        std::string demoEmail = providerId + "-user@" + providerId + ".example.com";
-        std::string demoUsername = providerId + "_user";
+        if (providerId == "google") {
+            std::string tokenUrl = provider->tokenUrl;
+            std::string userInfoUrl = provider->userInfoUrl;
+            std::string callbackUrl = g_idpBaseUrl + "/auth/federated/" + providerId + "/callback";
+
+            std::string tokenCmd = "curl -s -X POST " + escapeShellArg(tokenUrl) + " "
+                                 + "--data-urlencode " + escapeShellArg("code=" + code) + " "
+                                 + "--data-urlencode " + escapeShellArg("client_id=" + provider->clientId) + " "
+                                 + "--data-urlencode " + escapeShellArg("client_secret=" + provider->clientSecret) + " "
+                                 + "--data-urlencode " + escapeShellArg("redirect_uri=" + callbackUrl) + " "
+                                 + "--data-urlencode " + escapeShellArg("grant_type=authorization_code");
+
+            std::string tokenResp = execCommand(tokenCmd);
+            LOG(INFO) << "[Federated] Token response: " << tokenResp;
+
+            std::string accessToken;
+            try {
+                auto tokenJson = json::parse(tokenResp);
+                if (tokenJson.contains("access_token")) {
+                    accessToken = tokenJson["access_token"].get<std::string>();
+                } else if (tokenJson.contains("error_description")) {
+                    res->send(errorPage("Google token exchange failed: " + tokenJson["error_description"].get<std::string>()));
+                    return;
+                } else {
+                    res->send(errorPage("Google token exchange failed: response missing access_token. Raw: " + tokenResp));
+                    return;
+                }
+            } catch (const std::exception& e) {
+                res->send(errorPage("Failed to parse Google token response: " + std::string(e.what()) + ". Raw: " + tokenResp));
+                return;
+            }
+
+            std::string userInfoCmd = "curl -s -H " + escapeShellArg("Authorization: Bearer " + accessToken) + " "
+                                    + escapeShellArg(userInfoUrl);
+            std::string userInfoResp = execCommand(userInfoCmd);
+            LOG(INFO) << "[Federated] Userinfo response: " << userInfoResp;
+
+            try {
+                auto userJson = json::parse(userInfoResp);
+                if (userJson.contains("email")) {
+                    targetEmail = userJson["email"].get<std::string>();
+                }
+                if (userJson.contains("name")) {
+                    targetUsername = userJson["name"].get<std::string>();
+                } else if (userJson.contains("given_name")) {
+                    targetUsername = userJson["given_name"].get<std::string>();
+                }
+            } catch (const std::exception& e) {
+                res->send(errorPage("Failed to parse Google userinfo response: " + std::string(e.what()) + ". Raw: " + userInfoResp));
+                return;
+            }
+
+            if (targetEmail.empty()) {
+                res->send(errorPage("Google login failed: user email not provided by Google. Raw: " + userInfoResp));
+                return;
+            }
+            if (targetUsername.empty()) {
+                targetUsername = targetEmail;
+            }
+        } else {
+            // Fallback for Meta or Apple (which aren't fully configured/implemented here)
+            targetEmail = providerId + "-user@" + providerId + ".example.com";
+            targetUsername = providerId + "_user";
+        }
 
         // Check if federated user already exists
         std::string userId;
-        g_db->query("SELECT id FROM user WHERE email=?", {demoEmail}, [&](const SqliteDatabase::Row& r) {
+        std::string finalUsername;
+        bool totpEnabled = false;
+
+        g_db->query("SELECT id, username, totp_enabled FROM user WHERE email=?", {targetEmail}, [&](const SqliteDatabase::Row& r) {
             userId = r.get(0);
+            finalUsername = r.get(1);
+            totpEnabled = (r.get(2) == "1");
         });
 
         if (userId.empty()) {
+            // Uniqueness check for username
+            finalUsername = targetUsername;
+            bool usernameExists = true;
+            int suffix = 1;
+            while (usernameExists) {
+                usernameExists = false;
+                g_db->query("SELECT id FROM user WHERE username=?", {finalUsername}, [&](const SqliteDatabase::Row& r) {
+                    usernameExists = true;
+                });
+                if (usernameExists) {
+                    finalUsername = targetUsername + std::to_string(suffix++);
+                }
+            }
+
             // Create linked account
             std::string hash = hashPasswordPbkdf2(generateRandomString(32));
             std::string err;
-            g_db->exec("INSERT INTO user(username,email,password_hash,password_salt) VALUES(?,?,?,'')",
-                       {demoUsername, demoEmail, hash}, &err);
+            if (!g_db->exec("INSERT INTO user(username,email,password_hash,password_salt) VALUES(?,?,?,'')",
+                       {finalUsername, targetEmail, hash}, &err)) {
+                res->status(500).send(errorPage("Failed to create user account: " + err));
+                return;
+            }
             userId = std::to_string(g_db->lastInsertRowid());
-            LOG(INFO) << "[Federated] Created local account for " << provider->displayName << " user: " << demoUsername;
+            LOG(INFO) << "[Federated] Created local account for " << provider->displayName << " user: " << finalUsername << " (" << targetEmail << ")";
+        } else {
+            // User exists. Check if they have a placeholder username (e.g. google_user, google user, user_*)
+            auto isPlaceholder = [](const std::string& name) {
+                if (name == "google_user" || name == "google user") return true;
+                if (name.rfind("user_", 0) == 0) return true;
+                if (name.rfind("google_", 0) == 0) return true;
+                return false;
+            };
+
+            if (isPlaceholder(finalUsername) && finalUsername != targetUsername && !targetUsername.empty()) {
+                // Check if targetUsername is already taken by a different user
+                std::string resolvedUsername = targetUsername;
+                bool usernameExists = true;
+                int suffix = 1;
+                while (usernameExists) {
+                    usernameExists = false;
+                    g_db->query("SELECT id FROM user WHERE username=? AND id != ?", {resolvedUsername, userId}, [&](const SqliteDatabase::Row& r) {
+                        usernameExists = true;
+                    });
+                    if (usernameExists) {
+                        resolvedUsername = targetUsername + std::to_string(suffix++);
+                    }
+                }
+
+                // Update username in db
+                std::string err;
+                if (g_db->exec("UPDATE user SET username=? WHERE id=?", {resolvedUsername, userId}, &err)) {
+                    LOG(INFO) << "[Federated] Updated placeholder username for user ID " << userId << " from '" << finalUsername << "' to '" << resolvedUsername << "'";
+                    finalUsername = resolvedUsername;
+                } else {
+                    LOG(ERROR) << "[Federated] Failed to update placeholder username: " << err;
+                }
+            }
         }
 
-        LOG(INFO) << "[Federated] " << provider->displayName << " login successful for user: " << demoUsername;
-        finishLogin(res, userId, demoUsername, clientId, redirectUri, originalState,
-                    "openid profile", "", "", false);
+        LOG(INFO) << "[Federated] " << provider->displayName << " login successful for user: " << finalUsername << " (" << targetEmail << ")";
+
+        if (totpEnabled) {
+            res->send(mfaPage("", userId, clientId, redirectUri, originalState, "openid profile", challenge, method));
+        } else {
+            finishLogin(res, userId, finalUsername, clientId, redirectUri, originalState,
+                        "openid profile", challenge, method, false);
+        }
     });
 
     // ── Start server ──────────────────────────────────────────────────────────

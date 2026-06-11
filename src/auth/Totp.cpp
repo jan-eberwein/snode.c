@@ -3,6 +3,7 @@
 #include <cstring>
 #include <ctime>
 #include <iomanip>
+#include <algorithm>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <sstream>

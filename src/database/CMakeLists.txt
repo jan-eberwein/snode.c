@@ -40,14 +40,17 @@
 cmake_minimum_required(VERSION 3.18)
 
 # ── SQLite3 detection ─────────────────────────────────────────────────────────
-# Use pkg-config (works on macOS/Homebrew and OpenWrt cross-builds).
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SQLITE3 REQUIRED IMPORTED_TARGET sqlite3)
-# Provide a canonical SQLite3::SQLite3 alias for downstream targets.
-if(NOT TARGET SQLite3::SQLite3)
-    add_library(SQLite3::SQLite3 ALIAS PkgConfig::SQLITE3)
+if(SNODEC_BUILD_LOCAL_IDP)
+    # Use pkg-config (works on macOS/Homebrew and OpenWrt cross-builds).
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SQLITE3 REQUIRED IMPORTED_TARGET sqlite3)
+    # Provide a canonical SQLite3::SQLite3 alias for downstream targets.
+    if(NOT TARGET SQLite3::SQLite3)
+        add_library(SQLite3::SQLite3 ALIAS PkgConfig::SQLITE3)
+    endif()
+
+    add_subdirectory(sqlite)
 endif()
 
 add_subdirectory(mariadb)
-add_subdirectory(sqlite)
 

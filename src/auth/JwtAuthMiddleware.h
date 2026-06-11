@@ -145,6 +145,7 @@ namespace snodec {
                     // Token valid - store claims in request for downstream handlers
                     req->template setAttribute<std::string>(claims.subject, "X-User-Id");
                     req->template setAttribute<std::string>(claims.username, "X-Username");
+                    req->template setAttribute<std::string>(claims.email, "X-Email");
                     req->template setAttribute<bool>(claims.mfaVerified, "X-MfaVerified");
 
                     // Continue to next middleware/handler
