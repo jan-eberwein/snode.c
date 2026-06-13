@@ -209,8 +209,27 @@ namespace snodec {
                 const expiresIn = data.expires_in || 3600;
                 const expires = new Date(Date.now() + expiresIn * 1000);
                 document.cookie = ')" + cookieName_ +
-                                                    R"(=' + data.access_token + 
+                                                    R"(=' + data.access_token +
                     '; path=/; expires=' + expires.toUTCString() + '; SameSite=Lax';
+
+                // Make the signed-in identity available to the frontend UI.
+                // The access token is treated as opaque (a relying party may
+                // re-issue it as an HttpOnly cookie that scripts cannot read),
+                // so we additionally store a small, non-sensitive cookie with
+                // the display name and email decoded from the JWT payload. Any
+                // SNode.C frontend can read "snodec_user" to render account UI
+                // without parsing or verifying tokens itself.
+                try {
+                    var b64 = data.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+                    while (b64.length % 4) { b64 += '='; }
+                    var claims = JSON.parse(decodeURIComponent(escape(atob(b64))));
+                    var who = encodeURIComponent(JSON.stringify({
+                        username: claims.username || claims.preferred_username || claims.sub || '',
+                        email: claims.email || ''
+                    }));
+                    document.cookie = 'snodec_user=' + who +
+                        '; path=/; expires=' + expires.toUTCString() + '; SameSite=Lax';
+                } catch (e) { /* identity cookie is best-effort; ignore decode errors */ }
 
                 // Clear the PKCE verifier cookie
                 document.cookie = 'pkce_verifier=; path=/; max-age=0';

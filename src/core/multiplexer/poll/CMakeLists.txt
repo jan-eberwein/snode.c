@@ -46,7 +46,7 @@ set(MUX_POLL_H DescriptorEventPublisher.h EventMultiplexer.h)
 add_library(mux-poll SHARED ${MUX_POLL_CPP} ${MUX_POLL_H})
 add_library(snodec::mux-poll ALIAS mux-poll)
 
-target_link_libraries(mux-poll PRIVATE core logger)
+target_link_libraries(mux-poll PRIVATE logger)
 
 target_include_directories(
     mux-poll PUBLIC "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>"

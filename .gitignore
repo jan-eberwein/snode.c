@@ -66,3 +66,7 @@ totp.key
 
 # ── Qt Creator ────────────────────────────────────────────────────
 /.qtcreator/
+
+# Never commit IdP signing keys
+src/apps/auth_idp/keys/
+*.pem

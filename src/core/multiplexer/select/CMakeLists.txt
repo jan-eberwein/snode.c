@@ -43,7 +43,7 @@ set(MUX_SELECT_CPP DescriptorEventPublisher.cpp EventMultiplexer.cpp)
 
 set(MUX_SELECT_H DescriptorEventPublisher.h EventMultiplexer.h)
 
-add_library(mux-select STATIC ${MUX_SELECT_CPP} ${MUX_SELECT_H})
+add_library(mux-select SHARED ${MUX_SELECT_CPP} ${MUX_SELECT_H})
 add_library(snodec::mux-select ALIAS mux-select)
 
 target_include_directories(

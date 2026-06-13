@@ -7,3 +7,4 @@ target_include_directories(
 )
 
 target_compile_features(nayuki-qrcodegen PUBLIC cxx_std_17)
+set_property(TARGET nayuki-qrcodegen PROPERTY POSITION_INDEPENDENT_CODE ON)

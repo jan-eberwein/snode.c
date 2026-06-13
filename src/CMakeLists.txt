@@ -156,6 +156,10 @@ get_all_targets_dependencies(SNODEC_LIST_OF_ALL_TARGETS_DEPENDENCIES express)
 get_all_targets_dependencies(SNODEC_LIST_OF_ALL_TARGETS_DEPENDENCIES database)
 get_all_targets_dependencies(SNODEC_LIST_OF_ALL_TARGETS_DEPENDENCIES iot)
 
+if(SNODEC_SSO_MFA)
+    get_all_targets_dependencies(SNODEC_LIST_OF_ALL_TARGETS_DEPENDENCIES auth)
+endif()
+
 set(SUPPORTED_COMPONENTS
     core
     core-socket-stream-legacy
@@ -193,6 +197,7 @@ set(SUPPORTED_COMPONENTS
     mqtt-client
     mqtt-server-websocket
     mqtt-client-websocket
+    net-auth
 )
 string(JOIN "\n    " SUPPORTED_COMPONENTS ${SUPPORTED_COMPONENTS})
 

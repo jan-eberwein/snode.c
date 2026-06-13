@@ -36,6 +36,11 @@
 #include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <openssl/bio.h>
+#include <openssl/bn.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <random>
 #include <set>
@@ -147,13 +152,22 @@ static std::string loadPrivateKey(const std::string& path) {
 
 static std::string generateRandomString(size_t len) {
     static constexpr char CHARS[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, sizeof(CHARS) - 2);
+    constexpr unsigned N = sizeof(CHARS) - 1;          // 62 distinct characters
+    // Draw token characters from a cryptographically secure source (OpenSSL's
+    // RAND_bytes), not a std::mt19937 PRNG whose output is predictable. Reject
+    // byte values at or above the largest multiple of N below 256 so the modulo
+    // is unbiased and every character carries the full log2(62) ~= 5.95 bits.
+    constexpr unsigned LIMIT = 256 - (256 % N);        // 248
     std::string s;
     s.reserve(len);
-    for (size_t i = 0; i < len; ++i) {
-        s += CHARS[dis(gen)];
+    while (s.size() < len) {
+        unsigned char b;
+        if (RAND_bytes(&b, 1) != 1) {
+            throw std::runtime_error("generateRandomString: RAND_bytes failed");
+        }
+        if (b < LIMIT) {
+            s += CHARS[b % N];
+        }
     }
     return s;
 }
@@ -166,6 +180,59 @@ static std::string sha256hex(const std::string& input) {
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b);
     }
     return ss.str();
+}
+
+// The url-safe base64 encoder is defined further down with the PKCE utilities;
+// it is forward declared here so the JWKS builder below can reuse it.
+static std::string base64UrlEncode(const unsigned char* data, size_t len);
+
+// Build a JWKS document from the IdP's RSA key. The public modulus and exponent
+// are exported so relying parties can discover the RS256 verification key
+// automatically instead of having the public key copied to them by hand.
+static std::string buildJwksDocument(const std::string& privateKeyPem) {
+    json doc;
+    doc["keys"] = json::array();
+    BIO* bio = BIO_new_mem_buf(privateKeyPem.data(), static_cast<int>(privateKeyPem.size()));
+    if (bio == nullptr) {
+        return doc.dump();
+    }
+    EVP_PKEY* pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    if (pkey == nullptr) {
+        return doc.dump();
+    }
+    BIGNUM* n = nullptr;
+    BIGNUM* e = nullptr;
+    EVP_PKEY_get_bn_param(pkey, "n", &n);
+    EVP_PKEY_get_bn_param(pkey, "e", &e);
+    EVP_PKEY_free(pkey);
+    if (n == nullptr || e == nullptr) {
+        BN_free(n);
+        BN_free(e);
+        return doc.dump();
+    }
+    auto bn2b64 = [](const BIGNUM* b) {
+        std::vector<unsigned char> buf(static_cast<size_t>(BN_num_bytes(b)));
+        BN_bn2bin(b, buf.data());
+        return base64UrlEncode(buf.data(), buf.size());
+    };
+    const std::string nB64 = bn2b64(n);
+    const std::string eB64 = bn2b64(e);
+    BN_free(n);
+    BN_free(e);
+    // Key id is the RFC 7638 JWK thumbprint over the canonical member ordering.
+    const std::string canonical = "{\"e\":\"" + eB64 + "\",\"kty\":\"RSA\",\"n\":\"" + nB64 + "\"}";
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(canonical.data()), canonical.size(), digest);
+    json jwk;
+    jwk["kty"] = "RSA";
+    jwk["use"] = "sig";
+    jwk["alg"] = "RS256";
+    jwk["kid"] = base64UrlEncode(digest, sizeof(digest));
+    jwk["n"] = nB64;
+    jwk["e"] = eB64;
+    doc["keys"].push_back(jwk);
+    return doc.dump();
 }
 
 // --- Password hashing: PBKDF2 with legacy SHA-256 migration ---
@@ -397,14 +464,14 @@ static const char* PAGE_CSS = R"(
     --card-border: #e8e8ed; --input-bg: #ffffff; --input-border: #d2d2d7;
     --input-focus: #0066cc; --btn-bg: #0066cc; --btn-hover: #004499;
     --btn-text: #ffffff; --link-color: #0066cc; --text-muted: #86868b;
-    --header-bg: rgba(255, 255, 255, 0.8); --header-border: #e8e8ed;
+    --header-bg: rgba(255, 255, 255, 0.85); --header-border: #e8e8ed;
 }
 [data-theme="dark"] {
     --bg-color: #000000; --text-color: #f5f5f7; --card-bg: #1c1c1e;
     --card-border: #333336; --input-bg: #1c1c1e; --input-border: #424245;
     --input-focus: #2997ff; --btn-bg: #2997ff; --btn-hover: #0071e3;
     --btn-text: #ffffff; --link-color: #2997ff; --text-muted: #86868b;
-    --header-bg: rgba(28, 28, 30, 0.8); --header-border: #333336;
+    --header-bg: rgba(28, 28, 30, 0.85); --header-border: #333336;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -415,7 +482,7 @@ body {
 }
 header {
     background: var(--header-bg); border-bottom: 1px solid var(--header-border);
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     position: sticky; top: 0; z-index: 100;
     display: flex; justify-content: space-between; align-items: center;
     padding: 16px 40px;
@@ -424,31 +491,45 @@ header {
     font-weight: 700; font-size: 1.2rem; letter-spacing: 1px; color: var(--text-color);
     text-decoration: none; display: flex; align-items: center; gap: 10px;
 }
-.header-nav { display: flex; align-items: center; gap: 24px; }
+.header-nav { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
 .header-nav a {
     color: var(--text-color); text-decoration: none; font-size: 0.9rem; font-weight: 500;
     transition: color 0.2s;
 }
 .header-nav a:hover { color: var(--link-color); }
+
+.header-top { display: contents; }
+.burger-menu { display: none; background: none; border: none; cursor: pointer; color: var(--text-color); padding: 4px; }
+.burger-menu svg { width: 28px; height: 28px; fill: currentColor; }
+.mobile-user { display: none; font-size: 0.85rem; color: var(--text-muted); font-weight: 600; margin-top: 4px; }
+.desktop-user { display: flex; }
+
+footer {
+    padding: 24px; text-align: center; color: var(--text-muted); font-size: 0.85rem;
+    border-top: 1px solid var(--header-border); background: var(--header-bg);
+    display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 6px;
+}
+
+/* Consolidated in media query below */
 main {
-    flex: 1; display: flex; justify-content: center; align-items: center; padding: 40px 20px;
+    flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px 20px;
 }
 .card {
     background: var(--card-bg); border: 1px solid var(--card-border);
     border-radius: 16px; padding: 40px; width: 100%; max-width: 440px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.04); transition: background-color 0.3s, border-color 0.3s;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.04); transition: background-color 0.3s, border-color 0.3s;
 }
 .dashboard-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 20px; width: 100%; max-width: 900px; margin: 0 auto;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px; width: 100%; max-width: 1200px; margin: 0 auto; align-items: stretch;
 }
 .stat-card {
     background: var(--card-bg); border: 1px solid var(--card-border);
-    border-radius: 12px; padding: 24px; display: flex; flex-direction: column;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.02); transition: transform 0.2s;
+    border-radius: 16px; padding: 24px; display: flex; flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.02); transition: transform 0.2s, box-shadow 0.2s;
 }
-.stat-card:hover { transform: translateY(-2px); }
-.stat-value { font-size: 2.5rem; font-weight: 700; margin-top: 10px; color: var(--text-color); }
+.stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.04); }
+.stat-value { font-size: 2.2rem; font-weight: 700; margin-top: 12px; color: var(--text-color); }
 .stat-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
 .logo-icon { width: 48px; height: 48px; margin: 0 auto 16px; display: block; fill: var(--text-color); }
 h1 { text-align:center; font-size:1.6rem; font-weight:600; margin-bottom:8px; }
@@ -478,7 +559,7 @@ input:focus { outline:none; border-color: var(--input-focus); box-shadow: 0 0 0 
 .btn-red:hover { background: #d70015; }
 [data-theme="dark"] .btn-red { background: #ff453a; color: #fff; }
 [data-theme="dark"] .btn-red:hover { background: #ff6961; }
-.error-box, .info-box, .success-box { padding: 12px 16px; border-radius: 8px; margin-bottom: 24px; font-size: 0.9rem; }
+.error-box, .info-box, .success-box { padding: 16px; border-radius: 12px; margin-bottom: 24px; font-size: 0.95rem; line-height: 1.4; display: flex; align-items: center; gap: 12px; }
 .error-box { background: rgba(255,59,48,0.1); color: #ff3b30; border: 1px solid rgba(255,59,48,0.2); }
 [data-theme="dark"] .error-box { background: rgba(255,69,58,0.1); color: #ff453a; border: 1px solid rgba(255,69,58,0.2); }
 .info-box { background: rgba(0,102,204,0.1); color: #0066cc; border: 1px solid rgba(0,102,204,0.2); }
@@ -494,14 +575,37 @@ input:focus { outline:none; border-color: var(--input-focus); box-shadow: 0 0 0 
 }
 .theme-switch svg { width: 20px; height: 20px; fill: currentColor; }
 .divider { height: 1px; background: var(--card-border); margin: 24px 0; }
-.clickable-card { cursor: pointer; border: 1px solid var(--input-border); transition: border-color 0.2s, transform 0.2s; }
-.clickable-card:hover { border-color: var(--link-color); transform: translateY(-2px); }
+.clickable-card { cursor: pointer; border: 1px solid var(--card-border); transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
+.clickable-card:hover { border-color: var(--link-color); transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,102,204,0.1); }
+.logout-btn { background: #ff3b30; color: #fff !important; border: none; cursor: pointer; font-weight: 600; font-size: 0.88rem; padding: 7px 18px; border-radius: 20px; transition: background 0.2s, transform 0.1s; letter-spacing: 0.01em; }
+.logout-btn:hover { background: #d70015; transform: translateY(-1px); }
+.logout-btn:active { transform: scale(0.97); }
+[data-theme="dark"] .logout-btn { background: #ff453a; }
+[data-theme="dark"] .logout-btn:hover { background: #ff6961; }
 footer { text-align: center; padding: 24px; font-size: 0.85rem; color: var(--text-muted); border-top: 1px solid var(--header-border); background: var(--header-bg); }
-.footer-content { display: flex; justify-content: center; gap: 12px; align-items: center; }
+.footer-content { display: flex; justify-content: center; gap: 12px; align-items: center; flex-wrap: wrap; }
 .footer-content a { color: var(--text-muted); text-decoration: none; transition: color 0.2s; }
 .footer-content a:hover { color: var(--link-color); }
+.footer-divider { display: inline; }
 @media (min-width: 600px) { .span-2 { grid-column: span 2; } }
-@media (max-width: 600px) { header { padding: 16px 20px; } .header-nav { gap: 12px; } }
+@media (max-width: 600px) {
+    header { padding: 16px 20px; flex-direction: column; gap: 16px; }
+    .header-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+    .mobile-user { display: block; }
+    .burger-menu { display: block; }
+    .header-nav { display: none; flex-direction: column; gap: 12px; margin-top: 16px; align-items: stretch; width: 100%; border-top: 1px solid var(--header-border); padding-top: 16px; }
+    .header-nav.open { display: flex; }
+    .header-nav a, .header-nav form { width: 100%; text-align: left; }
+    .header-nav a, .header-nav .logout-btn { padding: 8px 0; font-size: 1rem; width: 100%; display: block; }
+    .theme-switch { justify-content: flex-start; width: 100%; padding: 8px 0; }
+    .desktop-user { display: none !important; }
+    .card { padding: 24px 20px; }
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .span-2 { grid-column: span 1; }
+    .footer-content { flex-direction: column; gap: 6px; }
+    .footer-divider { display: none; }
+    .desktop-only { display: none; }
+}
 )";
 
 static const char* PAGE_JS = R"(
@@ -550,34 +654,56 @@ static std::string formatUserDisplayName(const std::string& username, const std:
 
 static std::string
 buildPage(const std::string& title, const std::string& body, bool isAuthenticated = false, const std::string& username = "") {
+    std::string mobileUsername = username;
+    size_t paren = mobileUsername.find(" (");
+    if (paren != std::string::npos) {
+        mobileUsername = mobileUsername.substr(0, paren);
+    }
+
     std::string accountBtn = "";
     if (isAuthenticated && !username.empty()) {
-        accountBtn = "<a href=\"/settings\" style=\"background:var(--btn-bg);color:#fff;padding:4px "
-                     "12px;border-radius:20px;font-weight:600;display:flex;align-items:center;gap:6px;text-decoration:none;\">"
+        accountBtn = "<a href=\"/settings\" class=\"desktop-user\" style=\"background:var(--btn-bg);color:#fff;padding:6px "
+                     "14px;border-radius:20px;font-weight:600;align-items:center;gap:6px;text-decoration:none;\">"
                      "<svg width=\"16\" height=\"16\" fill=\"currentColor\"><use href=\"#icon-user\"/></svg>" +
                      username + "</a>";
     }
 
+    const char* webAppUrl = std::getenv("PROTECTED_WEBAPP_URL");
+    std::string protectedAppStr = "";
+    if (webAppUrl != nullptr && std::string(webAppUrl) != "") {
+        protectedAppStr = "<a href=\"" + std::string(webAppUrl) + "\" style=\"color:#3b82f6; font-weight:600;\">MQTT Broker Dashboard</a>";
+    }
+
     std::string navLinks = isAuthenticated ? accountBtn + "<a href=\"/dashboard\">Dashboard</a>"
-                                                          "<a href=\"/settings\">Settings</a>"
-                                                          "<a href=\"http://localhost:8055/\" style=\"color:#3b82f6; font-weight:600; margin-left:8px;\">Protected WebApp</a>"
-                                                          "<form method=\"POST\" action=\"/auth/logout\" style=\"display:inline; margin-left:8px;\">"
-                                                          "<button type=\"submit\" class=\"btn btn-red\" style=\"padding:6px 12px; "
-                                                          "font-size:0.85rem; border-radius:6px;\">Sign Out</button></form>"
+                                                          "<a href=\"/settings\">Settings</a>" +
+                                                          protectedAppStr +
+                                                          "<form method=\"POST\" action=\"/auth/logout\" style=\"display:inline;margin:0;\">" 
+                                                          "<button type=\"submit\" class=\"logout-btn\">Sign Out</button></form>"
                                            : "<a href=\"/auth/login\">Sign In</a><a href=\"/auth/register\">Create Account</a>";
 
     return "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
            "<meta charset=\"UTF-8\">\n"
-           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0\">\n"
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1.0,viewport-fit=cover\">\n"
+           "<meta name=\"description\" content=\"SNode.C Central Identity Provider. Secure OAuth2 & TOTP MFA.\">\n"
+           "<meta name=\"theme-color\" content=\"#0066cc\">\n"
+           "<link rel=\"icon\" href=\"data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%230066cc%22><path d=%22M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z%22/></svg>\">\n"
            "<title>" +
            title +
-           " — SNode.C</title>\n"
+           " — SNode.C IdP</title>\n"
            "<style>" +
            PAGE_CSS + "</style>\n" + PAGE_JS + "</head>\n<body>\n" + ICONS +
            "<header>\n"
-           "<a href=\"/\" class=\"header-logo\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"var(--btn-bg)\"><path d=\"M12 "
-           "2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5\"/></svg> SNode.C</a>\n"
-           "<nav class=\"header-nav\">\n" +
+           "<div class=\"header-top\">\n"
+           "  <div style=\"display:flex; flex-direction:column; gap:4px;\">\n"
+           "    <a href=\"/\" class=\"header-logo\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"var(--btn-bg)\"><path d=\"M12 "
+           "2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5\"/></svg> SNode.C IdP</a>\n"
+           + (isAuthenticated && !username.empty() ? "    <div class=\"mobile-user\" style=\"font-size:0.85rem; color:var(--text-muted); font-weight:500; margin-left:32px;\">" + mobileUsername + "</div>\n" : "") +
+           "  </div>\n"
+           "  <button class=\"burger-menu\" onclick=\"document.getElementById('nav-menu').classList.toggle('open');\" style=\"margin-top:2px;\">\n"
+           "    <svg viewBox=\"0 0 24 24\"><path d=\"M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z\"/></svg>\n"
+           "  </button>\n"
+           "</div>\n"
+           "<nav class=\"header-nav\" id=\"nav-menu\">\n" +
            navLinks +
            "<button class=\"theme-switch\" onclick=\"toggleTheme()\" id=\"theme-icon\"></button>\n"
            "</nav>\n</header>\n"
@@ -585,11 +711,11 @@ buildPage(const std::string& title, const std::string& body, bool isAuthenticate
            body +
            "\n</main>\n"
            "<footer><div class=\"footer-content\">\n"
-           "<span>&copy; <script>document.write(new Date().getFullYear())</script> Jan Eberwein & Volker Chr.</span>\n"
-           "<span>|</span>\n"
-           "<a href=\"https://github.com/SNodeC\" target=\"_blank\">GitHub</a>\n"
-           "<span>|</span>\n"
-           "<span>MIT License</span>\n"
+           "  <span class=\"footer-copyright\">&copy; 2026 "
+           "<a href=\"https://www.janeberwein.at\" target=\"_blank\" rel=\"noopener noreferrer\">Jan Eberwein</a> &amp; "
+           "<a href=\"https://github.com/VolkerChristian\" target=\"_blank\" rel=\"noopener noreferrer\">Volker Christian</a></span>\n"
+           "  <span class=\"footer-divider\">|</span>\n"
+           "  <span class=\"footer-links\"><a href=\"https://opensource.org/licenses/MIT\" target=\"_blank\" rel=\"noopener noreferrer\">MIT License</a></span>\n"
            "</div></footer>\n"
            "</body>\n</html>\n";
 }
@@ -788,16 +914,34 @@ static std::string
 enrollTotpPage(const std::string& userId, const std::string& secret, const std::string& uri, 
                const std::string& clientId, const std::string& redirectUri, const std::string& state, 
                const std::string& scope, const std::string& codeChallenge, const std::string& codeChallengeMethod,
-               const std::string& error = "") {
+               const std::string& returnUri = "", const std::string& error = "") {
     std::string err = error.empty() ? "" : "<div class=\"error-box\">" + error + "</div>\n";
 
-    std::string skipUrl = "/auth/enroll/totp/skip?user_id=" + userId + 
-                          "&client_id=" + httputils::url_encode(clientId) + 
-                          "&redirect_uri=" + httputils::url_encode(redirectUri) + 
-                          "&state=" + httputils::url_encode(state) + 
+    // Validate the optional return target (settings-initiated enrolment) the
+    // same way the settings page does, before it goes into an href/value.
+    std::string safeRet;
+    if ((returnUri.rfind("https://", 0) == 0 || returnUri.rfind("http://", 0) == 0) &&
+        returnUri.find_first_of("\"'<> ") == std::string::npos) {
+        safeRet = returnUri;
+    }
+    // Settings-initiated enrolment has no OAuth context; offer a Cancel back to
+    // the settings page. The login/registration flow offers "Skip for now".
+    std::string bottomLink;
+    if (clientId.empty() && redirectUri.empty()) {
+        const std::string back = safeRet.empty() ? std::string("/settings") : "/settings?return=" + httputils::url_encode(safeRet);
+        bottomLink = "<div class=\"links\"><a href=\"" + back + "\">Cancel</a></div>\n";
+    }
+
+    std::string skipUrl = "/auth/enroll/totp/skip?user_id=" + userId +
+                          "&client_id=" + httputils::url_encode(clientId) +
+                          "&redirect_uri=" + httputils::url_encode(redirectUri) +
+                          "&state=" + httputils::url_encode(state) +
                           "&scope=" + httputils::url_encode(scope) +
                           "&code_challenge=" + httputils::url_encode(codeChallenge) +
                           "&code_challenge_method=" + httputils::url_encode(codeChallengeMethod);
+    if (bottomLink.empty()) {
+        bottomLink = "<div class=\"links\"><a href=\"" + skipUrl + "\">Skip for now</a></div>\n";
+    }
 
     std::string body =
         "<div class=\"card\" style=\"max-width:520px;\">\n"
@@ -838,6 +982,7 @@ enrollTotpPage(const std::string& userId, const std::string& secret, const std::
         "<input type=\"hidden\" name=\"scope\" value=\"" + scope + "\">\n"
         "<input type=\"hidden\" name=\"code_challenge\" value=\"" + codeChallenge + "\">\n"
         "<input type=\"hidden\" name=\"code_challenge_method\" value=\"" + codeChallengeMethod + "\">\n"
+        "<input type=\"hidden\" name=\"return\" value=\"" + safeRet + "\">\n"
         "<div class=\"form-group\">\n"
         "<label>Verification Code</label>\n"
         "<input type=\"text\" name=\"code\" placeholder=\"000000\" maxlength=\"6\""
@@ -845,10 +990,9 @@ enrollTotpPage(const std::string& userId, const std::string& secret, const std::
         " style=\"font-size:1.8rem;letter-spacing:10px;text-align:center;\">\n"
         "</div>\n"
         "<button type=\"submit\" class=\"btn\">✓ Activate 2FA</button>\n"
-        "</form>\n"
-        "<div class=\"links\">\n"
-        "<a href=\"" + skipUrl + "\">Skip for now</a>\n"
-        "</div>\n</div>\n";
+        "</form>\n" +
+        bottomLink +
+        "</div>\n";
     return buildPage("Enable 2FA", body, true);
 }
 
@@ -867,7 +1011,7 @@ static std::string landingPage() {
     return buildPage("Welcome", body, false);
 }
 
-static std::string dashboardPage(const std::string& username, int users, int sessions, int tokens, const std::string& uptime, bool mfaEnabled) {
+static std::string dashboardPage(const std::string& username, int users, int sessions, int pendingTokens, int mfaUsers, const std::string& uptime, bool mfaEnabled) {
     std::string alertBox = "";
     if (!mfaEnabled) {
         alertBox = 
@@ -882,25 +1026,11 @@ static std::string dashboardPage(const std::string& username, int users, int ses
             "Your account is currently secured with a single factor. To add a second factor, please "
             "<a href=\"/settings\" style=\"color:#fb923c; text-decoration:underline; font-weight:600;\">configure MFA in your Account Settings</a>.</div>"
             "</div>";
-    } else {
-        alertBox = 
-            "<div style=\"background:rgba(52,199,89,0.1); border:1.5px solid rgba(52,199,89,0.35); "
-            "border-radius:12px; padding:16px; margin-bottom:28px; display:flex; align-items:center; justify-content:space-between; gap:14px; color:#eafaf1; font-size:0.92rem; text-align:left;\">"
-            "<div style=\"display:flex; align-items:center; gap:14px;\">"
-            "<svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#34c759\" stroke-width=\"2\" style=\"flex-shrink:0;\">"
-            "<path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/>"
-            "<path d=\"M9 11l2 2 4-4\"/>"
-            "</svg>"
-            "<div><strong>Multi-Factor Authentication (MFA) is active.</strong> Your account is fully secured.</div>"
-            "</div>"
-            "<a href=\"/settings/mfa/disable\" class=\"btn btn-red\" style=\"padding: 6px 12px; font-size: 0.85rem; margin: 0; text-decoration: none;\">Disable MFA</a>"
-            "</div>";
     }
 
     std::string body =
+        "<div style=\"max-width: 1200px; margin: 0 auto; width: 100%;\">\n" +
         alertBox +
-        "<div style=\"text-align:center; margin-bottom: 24px;\">\n"
-        "  <h1 style=\"color: white; font-weight: 500; letter-spacing: 1px; font-size: 2rem;\">Identity Provider</h1>\n"
         "</div>\n"
         "<div class=\"dashboard-grid\">\n"
         "  <div class=\"stat-card span-2\" style=\"background: linear-gradient(135deg, var(--btn-bg), #004499); color: white;\">\n"
@@ -934,17 +1064,23 @@ static std::string dashboardPage(const std::string& username, int users, int ses
         "</span>\n"
         "  </div>\n"
         "  <div class=\"stat-card\">\n"
-        "    <span class=\"stat-label\">OAuth Tokens Issued</span>\n"
+        "    <span class=\"stat-label\">MFA Enrolled Users</span>\n"
         "    <span class=\"stat-value\">" +
-        std::to_string(tokens) +
+        std::to_string(mfaUsers) +
+        "</span>\n"
+        "  </div>\n"
+        "  <div class=\"stat-card\">\n"
+        "    <span class=\"stat-label\">Pending Auth Codes</span>\n"
+        "    <span class=\"stat-value\">" +
+        std::to_string(pendingTokens) +
         "</span>\n"
         "  </div>\n"
         "  <div class=\"stat-card span-2\">\n"
-        "    <span class=\"stat-label\">Network Gateway (SNode.C)</span>\n"
-        "    <span class=\"stat-value\" style=\"font-size:1.5rem; margin-top:8px;\">Connected to GL-MT3000</span>\n"
+        "    <span class=\"stat-label\">IdP configuration</span>\n"
+        "    <span class=\"stat-value\" style=\"font-size:1.5rem; margin-top:8px;\">Issuer: " + g_issuer + "</span>\n"
         "    <div style=\"display:flex; justify-content:space-between; margin-top:16px; color:var(--text-muted); font-size:0.9rem;\">"
-        "      <span>Nodes: 3 Active</span>"
-        "      <span style=\"color:#28a745;\">● Online</span>"
+        "      <span>Federated Logins: Google</span>"
+        "      <span style=\"color:#28a745;\">● Secured</span>"
         "    </div>"
         "  </div>\n"
         "  <a href=\"/settings\" class=\"stat-card clickable-card span-2\" style=\"text-decoration:none; display:flex; flex-direction:row; "
@@ -963,39 +1099,138 @@ static std::string dashboardPage(const std::string& username, int users, int ses
     return buildPage("Dashboard", body, true, username);
 }
 
-static std::string settingsPage(const std::string& username, const std::string& email, bool mfaEnabled, const std::string& userId) {
-    std::string mfaStatus = mfaEnabled ? "<div class=\"success-box\"><svg "
-                                         "style=\"width:16px;height:16px;fill:currentColor;vertical-align:middle;margin-right:8px;\"><use "
-                                         "href=\"#icon-check\"/></svg> Two-Factor Authentication is <strong>Enabled</strong>.</div>"
-                                       : "<div class=\"error-box\">Two-Factor Authentication is <strong>Disabled</strong>.</div>";
-
-    std::string mfaAction = mfaEnabled ? "<a href=\"/settings/mfa/disable\" class=\"btn btn-red\" style=\"text-decoration:none;\">Disable 2FA</a>\n"
-                                       : "<a href=\"/auth/enroll/totp?user_id=" + userId + "\" class=\"btn\">Enable 2FA</a>\n";
-
-    std::string body = "<div class=\"card\">\n"
-                       "<svg class=\"logo-icon\"><use href=\"#icon-settings\"/></svg>\n"
-                       "<h1>Account Settings</h1>\n"
-                       "<p class=\"subtitle\">Manage your security preferences</p>\n"
-                       "<div class=\"form-group\">\n"
-                       "<label>Username</label>\n"
-                       "<input type=\"text\" value=\"" +
-                       username +
-                       "\" disabled>\n"
-                       "</div>\n";
-    if (!email.empty()) {
-        body +=        "<div class=\"form-group\">\n"
-                       "<label>Email Address</label>\n"
-                       "<input type=\"text\" value=\"" +
-                       email +
-                       "\" disabled>\n"
-                       "</div>\n";
+static std::string settingsPage(const std::string& username, const std::string& email, bool mfaEnabled, const std::string& userId,
+                                bool isFederated, const std::string& message = "", bool isError = false,
+                                const std::string& returnUri = "") {
+    // Optional "back to the application" target, validated as an http(s) URL
+    // with no characters that could break out of an href (this prevents both
+    // attribute injection and non-web redirect schemes). Computed first so the
+    // MFA enrolment link and the Cancel buttons can all carry it.
+    std::string safeReturn;
+    if ((returnUri.rfind("https://", 0) == 0 || returnUri.rfind("http://", 0) == 0) &&
+        returnUri.find_first_of("\"'<> ") == std::string::npos) {
+        safeReturn = returnUri;
     }
-    body +=            "<div class=\"divider\"></div>\n"
-                       "<h3>Security Settings</h3><br>\n" +
-                       mfaStatus + mfaAction + "</div>\n";
+    const std::string returnQ =
+        safeReturn.empty() ? std::string("") : "&return=" + httputils::url_encode(safeReturn);
+    const std::string settingsBase =
+        safeReturn.empty() ? std::string("/settings") : "/settings?return=" + httputils::url_encode(safeReturn);
+    const std::string cancelBtn =
+        "<a href=\"" + settingsBase + "\" class=\"btn btn-secondary\" style=\"flex:1;\">Cancel</a>";
+    std::string backLink;
+    if (!safeReturn.empty()) {
+        backLink = "<div class=\"links\"><a href=\"" + safeReturn + "\">&larr; Back to the application</a></div>\n";
+    }
+
+    std::string mfaStatus = mfaEnabled
+        ? "<div style=\"display:flex; align-items:center; justify-content:space-between; padding:16px; background:rgba(52,199,89,0.05); border:1px solid rgba(52,199,89,0.2); border-radius:12px; margin-top:12px;\">"
+          "  <div style=\"display:flex; align-items:center; gap:10px;\">"
+          "    <div style=\"width:8px; height:8px; border-radius:50%; background:#34c759;\"></div>"
+          "    <div>"
+          "      <div style=\"font-weight:600; color:var(--text-color);\">MFA Enabled</div>"
+          "      <div style=\"font-size:0.85rem; color:var(--text-muted);\">Account is secured</div>"
+          "    </div>"
+          "  </div>"
+          "  <a href=\"/settings/mfa/disable\" class=\"btn btn-red\" style=\"width:auto; padding:6px 14px; font-size:0.85rem;\">Disable</a>"
+          "</div>"
+        : "<div style=\"display:flex; align-items:center; justify-content:space-between; padding:16px; background:rgba(255,59,48,0.05); border:1px solid rgba(255,59,48,0.2); border-radius:12px; margin-top:12px;\">"
+          "  <div style=\"display:flex; align-items:center; gap:10px;\">"
+          "    <div style=\"width:8px; height:8px; border-radius:50%; background:#ff3b30;\"></div>"
+          "    <div>"
+          "      <div style=\"font-weight:600; color:var(--text-color);\">MFA Disabled</div>"
+          "      <div style=\"font-size:0.85rem; color:var(--text-muted);\">Action recommended</div>"
+          "    </div>"
+          "  </div>"
+          "  <a href=\"/auth/enroll/totp?user_id=" + userId + returnQ + "\" class=\"btn\" style=\"width:auto; padding:6px 14px; font-size:0.85rem;\">Enable</a>"
+          "</div>";
+
+    // Optional success/error feedback box (shown after a save/change/delete).
+    std::string msgBox;
+    if (!message.empty()) {
+        const std::string rgb = isError ? "255,59,48" : "52,199,89";
+        msgBox = "<div style=\"padding:12px 16px; margin-bottom:16px; border-radius:10px; background:rgba(" + rgb +
+                 ",0.1); border:1px solid rgba(" + rgb + ",0.3); color:var(--text-color); font-size:0.9rem;\">" + message + "</div>\n";
+    }
+
+    // Password section: only a local account has a password to change.
+    // Federated (e.g. Google) accounts sign in through their provider, so no
+    // password UI is shown for them.
+    std::string passwordSection;
+    if (!isFederated) {
+        passwordSection =
+            "<div class=\"divider\"></div>\n"
+            "<h3 style=\"font-size:1.1rem; font-weight:600;\">Change Password</h3>\n"
+            "<form method=\"POST\" action=\"/settings/password\">\n"
+            "<div class=\"form-group\"><label>Current password</label><input type=\"password\" name=\"current_password\" placeholder=\"Current password\" required></div>\n"
+            "<div class=\"form-group\"><label>New password</label><input type=\"password\" name=\"new_password\" placeholder=\"New password (min. 8 characters)\" minlength=\"8\" maxlength=\"128\" required></div>\n"
+            "<div class=\"form-group\"><label>Confirm new password</label><input type=\"password\" name=\"confirm_password\" placeholder=\"Repeat new password\" minlength=\"8\" maxlength=\"128\" required></div>\n"
+            "<div style=\"display:flex; gap:10px;\"><button type=\"submit\" class=\"btn\" style=\"flex:1;\">Change Password</button>" + cancelBtn + "</div>\n"
+            "</form>\n";
+    }
+
+    std::string body =
+        "<div class=\"card\" style=\"max-width: 520px;\">\n"
+        "<svg class=\"logo-icon\"><use href=\"#icon-settings\"/></svg>\n"
+        "<h1>Account Settings</h1>\n"
+        "<p class=\"subtitle\">Manage your profile and security</p>\n" +
+        msgBox +
+        // Editable profile (username + email)
+        "<form method=\"POST\" action=\"/settings/profile\">\n"
+        "<div class=\"form-group\"><label>Username</label><input type=\"text\" name=\"username\" value=\"" + username +
+        "\" minlength=\"3\" maxlength=\"64\" required></div>\n"
+        "<div class=\"form-group\"><label>Email Address</label><input type=\"email\" name=\"email\" value=\"" + email +
+        "\" maxlength=\"254\" required></div>\n"
+        "<div style=\"display:flex; gap:10px;\"><button type=\"submit\" class=\"btn\" style=\"flex:1;\">Save Profile</button>" + cancelBtn + "</div>\n"
+        "</form>\n" +
+        passwordSection +
+        // Security (MFA)
+        "<div class=\"divider\"></div>\n"
+        "<h3 style=\"font-size:1.1rem; font-weight:600;\">Security</h3>\n" +
+        mfaStatus +
+        // Danger zone (delete account)
+        "<div class=\"divider\"></div>\n"
+        "<h3 style=\"font-size:1.1rem; font-weight:600; color:#ff3b30;\">Danger Zone</h3>\n"
+        "<div style=\"display:flex; align-items:center; justify-content:space-between; padding:16px; background:rgba(255,59,48,0.05); border:1px solid rgba(255,59,48,0.2); border-radius:12px; margin-top:12px;\">"
+        "<div><div style=\"font-weight:600; color:var(--text-color);\">Delete account</div>"
+        "<div style=\"font-size:0.85rem; color:var(--text-muted);\">Permanently remove this account, its sessions and MFA</div></div>"
+        "<a href=\"/settings/delete\" class=\"btn btn-red\" style=\"width:auto; padding:6px 14px; font-size:0.85rem;\">Delete</a>"
+        "</div>\n" +
+        backLink +
+        "</div>\n";
 
     std::string headerName = formatUserDisplayName(username, email);
     return buildPage("Settings", body, true, headerName);
+}
+
+// Detects accounts that have no local password (created via a federated
+// provider such as Google). Such accounts carry a sentinel password hash.
+static bool isFederatedAccount(const std::string& passwordHash) {
+    return passwordHash.rfind("$federated$", 0) == 0;
+}
+
+static std::string deleteAccountConfirmPage(const std::string& username, const std::string& email,
+                                            const std::string& message = "", bool isError = false) {
+    std::string msgBox;
+    if (!message.empty()) {
+        const std::string rgb = isError ? "255,59,48" : "52,199,89";
+        msgBox = "<div style=\"padding:12px 16px; margin-bottom:16px; border-radius:10px; background:rgba(" + rgb +
+                 ",0.1); border:1px solid rgba(" + rgb + ",0.3); color:var(--text-color); font-size:0.9rem;\">" + message + "</div>\n";
+    }
+    std::string body =
+        "<div class=\"card\" style=\"max-width: 480px;\">\n"
+        "<svg class=\"logo-icon\"><use href=\"#icon-shield\"/></svg>\n"
+        "<h1>Delete Account</h1>\n"
+        "<p class=\"subtitle\">This permanently removes your account, its sessions and any MFA enrolment. This cannot be undone.</p>\n" +
+        msgBox +
+        "<form method=\"POST\" action=\"/settings/delete\">\n"
+        "<div class=\"form-group\"><label>Type your username <b>" + username + "</b> to confirm</label>"
+        "<input type=\"text\" name=\"confirm_username\" placeholder=\"" + username + "\" autocomplete=\"off\" autocapitalize=\"off\" required></div>\n"
+        "<button type=\"submit\" class=\"btn btn-red\">Delete my account permanently</button>\n"
+        "</form>\n"
+        "<div class=\"links\"><a href=\"/settings\">Cancel</a></div>\n"
+        "</div>\n";
+    std::string headerName = formatUserDisplayName(username, email);
+    return buildPage("Delete Account", body, true, headerName);
 }
 
 static std::string mfaDisableConfirmPage(const std::string& error, const std::string& username, const std::string& email) {
@@ -1202,6 +1437,21 @@ int main(int argc, char* argv[]) {
         std::string err;
         g_db->exec("ALTER TABLE auth_code ADD COLUMN mfa_verified INTEGER DEFAULT 0", {}, &err);
         g_db->exec("ALTER TABLE password_reset_tokens ADD COLUMN used INTEGER DEFAULT 0", {}, &err);
+        // Records whether MFA was completed for this IdP session, so single
+        // sign-on re-authorizations within the session do not re-prompt for it.
+        // On first add only, treat already-established sessions as verified so
+        // currently signed-in users are not prompted once more after upgrade.
+        if (g_db->exec("ALTER TABLE session ADD COLUMN mfa_verified INTEGER DEFAULT 0", {}, &err)) {
+            g_db->exec("UPDATE session SET mfa_verified=1", {}, &err);
+        }
+        // Refresh tokens (rotation with reuse detection). Only the SHA-256 hash
+        // of each token is stored, so a database leak does not expose usable
+        // tokens. A rotated row is kept until expiry so that re-presentation of
+        // an already-used token can be detected as theft.
+        g_db->exec("CREATE TABLE IF NOT EXISTS refresh_token ("
+                   "token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, client_id TEXT NOT NULL, "
+                   "scope TEXT, mfa_verified INTEGER DEFAULT 0, used INTEGER DEFAULT 0, "
+                   "expires_at TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)", {}, &err);
     }
 
     // --- Load RSA private key and init JWT signer ---
@@ -1213,6 +1463,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     JwtSigner jwtSigner(g_issuer, privateKey);
+
+    // Public verification key in JWK Set form. The key is stable for the process
+    // lifetime, so the document is built once and served from the JWKS endpoint.
+    const std::string jwksDocument = buildJwksDocument(privateKey);
 
     // --- Lambda: issue auth code (OAuth2) or direct session ---
     auto finishLogin = [&](auto& res,
@@ -1226,10 +1480,13 @@ int main(int argc, char* argv[]) {
                            const std::string& method,
                            bool mfaVerified = false) {
         
-        // Always establish a session at the IdP for true SSO
+        // Always establish a session at the IdP for true SSO. The session
+        // remembers whether MFA was completed so later SSO re-authorizations
+        // within its lifetime do not have to ask for the TOTP code again.
         std::string token = generateRandomString(64);
         std::string err;
-        g_db->exec("INSERT INTO session(token, user_id, expires_at) VALUES(?, ?, datetime('now','+24 hours'))", {token, userId}, &err);
+        g_db->exec("INSERT INTO session(token, user_id, mfa_verified, expires_at) VALUES(?, ?, ?, datetime('now','+24 hours'))",
+                   {token, userId, mfaVerified ? "1" : "0"}, &err);
         res->cookie("snodec_session", token, {{"HttpOnly", ""}, {"Path", "/"}, {"Max-Age", "86400"}});
 
         if (!clientId.empty() && !redirectUri.empty()) {
@@ -1295,7 +1552,7 @@ int main(int argc, char* argv[]) {
             mfaEnabled = std::stoi(r.get(2));
         });
 
-        int totalUsers = 0, activeSessions = 0, totalTokens = 0;
+        int totalUsers = 0, activeSessions = 0, pendingTokens = 0, mfaUsers = 0;
         g_db->query("SELECT COUNT(*) FROM user", {}, [&](const SqliteDatabase::Row& r) {
             totalUsers = std::stoi(r.get(0));
         });
@@ -1303,11 +1560,14 @@ int main(int argc, char* argv[]) {
             activeSessions = std::stoi(r.get(0));
         });
         g_db->query("SELECT COUNT(*) FROM auth_code", {}, [&](const SqliteDatabase::Row& r) {
-            totalTokens = std::stoi(r.get(0));
+            pendingTokens = std::stoi(r.get(0));
+        });
+        g_db->query("SELECT COUNT(*) FROM user WHERE totp_enabled=1", {}, [&](const SqliteDatabase::Row& r) {
+            mfaUsers = std::stoi(r.get(0));
         });
 
         std::string headerName = formatUserDisplayName(username, email);
-        res->send(dashboardPage(headerName, totalUsers, activeSessions, totalTokens, formatUptime(), mfaEnabled > 0));
+        res->send(dashboardPage(headerName, totalUsers, activeSessions, pendingTokens, mfaUsers, formatUptime(), mfaEnabled > 0));
     });
 
     // ── GET /settings ─────────────────────────────────────────────────────────
@@ -1318,15 +1578,21 @@ int main(int argc, char* argv[]) {
             return;
         }
 
-        std::string username, email;
+        std::string username, email, passwordHash;
         int mfaEnabled = 0;
-        g_db->query("SELECT username, email, totp_enabled FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+        g_db->query("SELECT username, email, totp_enabled, password_hash FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
             username = r.get(0);
             email = r.get(1);
             mfaEnabled = std::stoi(r.get(2));
+            passwordHash = r.get(3);
         });
 
-        res->send(settingsPage(username, email, mfaEnabled > 0, userId));
+        // Optional feedback after a profile/password update (?msg=...&err=1),
+        // and an optional "back to app" target carried by the Account button.
+        const std::string msg = urlDecode(req->query("msg"));
+        const bool isErr = req->query("err") == "1";
+        const std::string ret = urlDecode(req->query("return"));
+        res->send(settingsPage(username, email, mfaEnabled > 0, userId, isFederatedAccount(passwordHash), msg, isErr, ret));
     });
 
     // ── GET /settings/mfa/disable ─────────────────────────────────────────────
@@ -1403,6 +1669,131 @@ int main(int argc, char* argv[]) {
         res->redirect("/settings");
     });
 
+    // ── POST /settings/profile (update username + email) ──────────────────────
+    app.post("/settings/profile", [&requireSession] MIDDLEWARE(req, res, next) {
+        std::string userId = requireSession(req, res);
+        if (userId.empty()) { res->redirect("/auth/login"); return; }
+
+        auto p = parseBody(req->body);
+        const std::string newUsername = p["username"], newEmail = p["email"];
+        if (newUsername.size() < 3 || newUsername.size() > 64 ||
+            newEmail.empty() || newEmail.size() > 254 || newEmail.find('@') == std::string::npos) {
+            res->redirect("/settings?err=1&msg=" + httputils::url_encode("Please enter a valid username (3-64 chars) and email."));
+            return;
+        }
+        bool taken = false;
+        g_db->query("SELECT id FROM user WHERE (username=? OR email=?) AND id<>?", {newUsername, newEmail, userId},
+                    [&](const SqliteDatabase::Row&) { taken = true; });
+        if (taken) {
+            res->redirect("/settings?err=1&msg=" + httputils::url_encode("That username or email is already in use."));
+            return;
+        }
+        std::string err;
+        if (!g_db->exec("UPDATE user SET username=?, email=? WHERE id=?", {newUsername, newEmail, userId}, &err)) {
+            res->redirect("/settings?err=1&msg=" + httputils::url_encode("Could not save profile: " + err));
+            return;
+        }
+        // The relying party's session token is frozen at login, so a profile
+        // change stays invisible to it until it re-authenticates. Bounce the
+        // browser through the relying party's logout (clearing its stale
+        // session) and back to this settings page; the next visit to the
+        // relying party silently re-authenticates via the live IdP session and
+        // picks up the new identity.
+        const std::string done = g_idpBaseUrl + "/settings?msg=" + httputils::url_encode("Profile updated.");
+        const char* webAppUrl = std::getenv("PROTECTED_WEBAPP_URL");
+        if (webAppUrl != nullptr && std::string(webAppUrl) != "") {
+            std::string url(webAppUrl);
+            if (!url.empty() && url.back() == '/') url.pop_back();
+            res->redirect(url + "/auth/logout?redirect_uri=" + httputils::url_encode(done));
+        } else {
+            res->redirect("/settings?msg=" + httputils::url_encode("Profile updated."));
+        }
+    });
+
+    // ── POST /settings/password (change for local / set for federated) ────────
+    app.post("/settings/password", [&requireSession] MIDDLEWARE(req, res, next) {
+        std::string userId = requireSession(req, res);
+        if (userId.empty()) { res->redirect("/auth/login"); return; }
+
+        auto p = parseBody(req->body);
+        const std::string currentPw = p["current_password"], newPw = p["new_password"], confirmPw = p["confirm_password"];
+        if (newPw.size() < 8 || newPw.size() > 128) {
+            res->redirect("/settings?err=1&msg=" + httputils::url_encode("New password must be 8-128 characters."));
+            return;
+        }
+        if (newPw != confirmPw) {
+            res->redirect("/settings?err=1&msg=" + httputils::url_encode("New passwords do not match."));
+            return;
+        }
+        std::string hash, salt;
+        g_db->query("SELECT password_hash, password_salt FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            hash = r.get(0);
+            salt = r.get(1);
+        });
+        const bool federated = isFederatedAccount(hash);
+        if (!federated) {
+            bool needsMigration = false;
+            if (!verifyPasswordAny(currentPw, hash, salt, needsMigration)) {
+                res->redirect("/settings?err=1&msg=" + httputils::url_encode("Your current password is incorrect."));
+                return;
+            }
+        }
+        std::string err;
+        if (!g_db->exec("UPDATE user SET password_hash=?, password_salt='' WHERE id=?", {hashPasswordPbkdf2(newPw), userId}, &err)) {
+            res->redirect("/settings?err=1&msg=" + httputils::url_encode("Could not update password: " + err));
+            return;
+        }
+        res->redirect("/settings?msg=" + httputils::url_encode(federated ? "Password set. You can now also sign in with username and password." : "Password changed."));
+    });
+
+    // ── GET /settings/delete (confirmation page) ──────────────────────────────
+    app.get("/settings/delete", [&requireSession] MIDDLEWARE(req, res, next) {
+        std::string userId = requireSession(req, res);
+        if (userId.empty()) { res->redirect("/auth/login"); return; }
+        std::string username, email;
+        g_db->query("SELECT username, email FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            username = r.get(0);
+            email = r.get(1);
+        });
+        res->send(deleteAccountConfirmPage(username, email));
+    });
+
+    // ── POST /settings/delete (permanently remove the account) ────────────────
+    app.post("/settings/delete", [&requireSession] MIDDLEWARE(req, res, next) {
+        std::string userId = requireSession(req, res);
+        if (userId.empty()) { res->redirect("/auth/login"); return; }
+        std::string username, email;
+        g_db->query("SELECT username, email FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+            username = r.get(0);
+            email = r.get(1);
+        });
+        auto p = parseBody(req->body);
+        if (p["confirm_username"] != username) {
+            res->status(400).send(deleteAccountConfirmPage(username, email, "The username did not match. Your account was not deleted.", true));
+            return;
+        }
+        std::string err;
+        g_db->exec("DELETE FROM session WHERE user_id=?", {userId}, &err);
+        g_db->exec("DELETE FROM auth_code WHERE user_id=?", {userId}, &err);
+        if (!g_db->exec("DELETE FROM user WHERE id=?", {userId}, &err)) {
+            res->status(500).send(errorPage("Could not delete account: " + err));
+            return;
+        }
+        LOG(INFO) << "[Account] Deleted account: " << username << " (" << email << ")";
+        res->cookie("snodec_session", "", {{"Path", "/"}, {"Max-Age", "0"}});
+        // Front-channel logout: a deleted account must not remain logged in at
+        // the relying party (whose token is stateless). Bounce through its
+        // logout to clear that session, then land on the IdP login page.
+        const char* webAppUrl = std::getenv("PROTECTED_WEBAPP_URL");
+        if (webAppUrl != nullptr && std::string(webAppUrl) != "") {
+            std::string url(webAppUrl);
+            if (!url.empty() && url.back() == '/') url.pop_back();
+            res->redirect(url + "/auth/logout?redirect_uri=" + httputils::url_encode(g_idpBaseUrl + "/auth/login"));
+        } else {
+            res->redirect("/auth/login");
+        }
+    });
+
     // ── POST /auth/logout ─────────────────────────────────────────────────────
     app.post("/auth/logout", [] MIDDLEWARE(req, res, next) {
         std::string token = req->cookie("snodec_session");
@@ -1411,8 +1802,14 @@ int main(int argc, char* argv[]) {
             g_db->exec("DELETE FROM session WHERE token=?", {token}, &err);
         }
         res->cookie("snodec_session", "", {{"Path", "/"}, {"Max-Age", "0"}});
-        // Chain logout to Protected Web App for true SSO logout
-        res->redirect("http://localhost:8055/auth/logout");
+        const char* webAppUrl = std::getenv("PROTECTED_WEBAPP_URL");
+        if (webAppUrl != nullptr && std::string(webAppUrl) != "") {
+            std::string url(webAppUrl);
+            if (url.back() == '/') url.pop_back();
+            res->redirect(url + "/auth/logout");
+        } else {
+            res->redirect("/auth/login");
+        }
     });
 
     // ── GET /auth/logout ──────────────────────────────────────────────────────
@@ -1449,19 +1846,28 @@ int main(int argc, char* argv[]) {
                     username = r.get(0);
                     totpEnabled = (r.get(1) == "1");
                 });
-                
+
+                // Was MFA already completed earlier in this SSO session?
+                bool sessionMfaVerified = false;
+                g_db->query("SELECT mfa_verified FROM session WHERE token=?", {req->cookie("snodec_session")}, [&](const SqliteDatabase::Row& r) {
+                    sessionMfaVerified = (r.get(0) == "1");
+                });
+
                 if (!username.empty()) {
-                    if (totpEnabled) {
+                    // Re-prompt for MFA only if it is enabled and has not yet
+                    // been verified in this session; otherwise re-authorize
+                    // silently and carry the session's MFA status forward.
+                    if (totpEnabled && !sessionMfaVerified) {
                         res->send(mfaPage("", userId, clientId, req->query("redirect_uri"), req->query("state"), req->query("scope"), req->query("code_challenge"), req->query("code_challenge_method")));
                         return;
                     }
-                    finishLogin(res, userId, username, clientId, 
-                                req->query("redirect_uri"), 
-                                req->query("state"), 
-                                req->query("scope"), 
-                                req->query("code_challenge"), 
+                    finishLogin(res, userId, username, clientId,
+                                req->query("redirect_uri"),
+                                req->query("state"),
+                                req->query("scope"),
+                                req->query("code_challenge"),
                                 req->query("code_challenge_method"),
-                                false);
+                                sessionMfaVerified);
                     return;
                 }
             }
@@ -1676,13 +2082,14 @@ int main(int argc, char* argv[]) {
         const std::string secret = Totp::generateSecret();
         const std::string uri = QrCodeGenerator::makeTotpOtpAuthUri("SNode.C", username, secret);
 
-        res->send(enrollTotpPage(userId, secret, uri, 
-                                 req->query("client_id"), 
-                                 req->query("redirect_uri"), 
-                                 req->query("state"), 
+        res->send(enrollTotpPage(userId, secret, uri,
+                                 req->query("client_id"),
+                                 req->query("redirect_uri"),
+                                 req->query("state"),
                                  req->query("scope"),
                                  req->query("code_challenge"),
-                                 req->query("code_challenge_method")));
+                                 req->query("code_challenge_method"),
+                                 urlDecode(req->query("return"))));
     });
 
     // ── POST /auth/enroll/totp/verify ─────────────────────────────────────────
@@ -1704,8 +2111,9 @@ int main(int argc, char* argv[]) {
                                                  p["redirect_uri"], 
                                                  p["state"], 
                                                  p["scope"], 
-                                                 p["code_challenge"], 
-                                                 p["code_challenge_method"], 
+                                                 p["code_challenge"],
+                                                 p["code_challenge_method"],
+                                                 p["return"],
                                                  "Invalid verification code. Please try again."));
             return;
         }
@@ -1720,6 +2128,18 @@ int main(int argc, char* argv[]) {
             username = r.get(0);
         });
 
+        // Settings-initiated enrolment has no OAuth login context; return the
+        // user to their settings (preserving the back-to-app link) rather than
+        // completing a login redirect to a relying party.
+        if (p["client_id"].empty() && p["redirect_uri"].empty()) {
+            std::string q = "/settings?msg=" + httputils::url_encode("Two-factor authentication is now enabled.");
+            const std::string ret = p["return"];
+            if ((ret.rfind("https://", 0) == 0 || ret.rfind("http://", 0) == 0) && ret.find_first_of("\"'<> ") == std::string::npos) {
+                q += "&return=" + httputils::url_encode(ret);
+            }
+            res->redirect(q);
+            return;
+        }
         finishLogin(res, userId, username, p["client_id"], p["redirect_uri"], p["state"], p["scope"], p["code_challenge"], p["code_challenge_method"], true);
     });
 
@@ -1946,84 +2366,184 @@ int main(int argc, char* argv[]) {
     app.post("/oauth2/token", [&jwtSigner] MIDDLEWARE(req, res, next) {
         res->set("Access-Control-Allow-Origin", "*");
         auto p = parseBody(req->body);
-        if (p["grant_type"] != "authorization_code") {
-            res->status(400).set("Content-Type", "application/json").send("{\"error\":\"unsupported_grant_type\"}");
-            return;
-        }
-        const std::string code = p["code"], clientId = p["client_id"], redirectUri = p["redirect_uri"], codeVerifier = p["code_verifier"];
-        if (code.empty() || clientId.empty() || codeVerifier.empty()) {
-            res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_request\"}");
-            return;
-        }
-        // Fetch auth code
-        struct CodeRow {
-            std::string userId, scope, challenge, method;
-            bool mfaVerified = false;
-            bool expired = false;
-        } cr;
-        bool found = false;
-        g_db->query("SELECT user_id,scope,code_challenge,code_challenge_method,mfa_verified,"
-                    " (expires_at <= datetime('now')) AS is_expired"
-                    " FROM auth_code WHERE code=? AND client_id=?",
-                    {code, clientId},
-                    [&](const SqliteDatabase::Row& r) {
-                        found = true;
-                        cr.userId = r.get(0);
-                        cr.scope = r.get(1);
-                        cr.challenge = r.get(2);
-                        cr.method = r.get(3);
-                        cr.mfaVerified = (r.get(4) == "1");
-                        cr.expired = (r.get(5) == "1");
-                    });
-        if (!found || cr.expired) {
-            res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_grant\"}");
-            return;
-        }
-        if (!verifyPkce(codeVerifier, cr.challenge, cr.method)) {
-            res->status(400)
-                .set("Content-Type", "application/json")
-                .send("{\"error\":\"invalid_grant\","
-                      "\"error_description\":\"PKCE verification failed\"}");
-            return;
-        }
-        // Fetch username and email
-        std::string username;
-        std::string email;
-        g_db->query("SELECT username, email FROM user WHERE id=?", {cr.userId}, [&](const SqliteDatabase::Row& r) {
-            username = r.get(0);
-            email = r.get(1);
-        });
-        if (username.empty()) {
-            res->status(500).set("Content-Type", "application/json").send("{\"error\":\"server_error\"}");
-            return;
-        }
-        // Delete used auth code (single-use)
-        g_db->exec("DELETE FROM auth_code WHERE code=?", {code});
+        const std::string grantType = p["grant_type"];
 
-        // Build JWT
-        JwtClaims claims;
-        claims.issuer = g_issuer;
-        claims.subject = cr.userId;
-        claims.audience = clientId;
-        claims.expiresAt = std::chrono::system_clock::from_time_t(std::time(nullptr) + 3600);
-        claims.username = username;
-        claims.email = email;
-        claims.mfaVerified = cr.mfaVerified;
-        std::istringstream ss(cr.scope);
-        std::string item;
-        while (std::getline(ss, item, ' ')) {
-            if (!item.empty()) {
-                claims.scopes.push_back(item);
+        // Issue an access token (RS256 JWT) and a rotating refresh token for a
+        // user. Username and email are read fresh on every call, so a token
+        // obtained by refreshing reflects any profile change made since the
+        // original login. Returns the OAuth token-response body as JSON.
+        auto issueTokens = [&](const std::string& userId, const std::string& clientId,
+                               const std::string& scope, bool mfaVerified) -> std::string {
+            std::string username, email;
+            g_db->query("SELECT username, email FROM user WHERE id=?", {userId}, [&](const SqliteDatabase::Row& r) {
+                username = r.get(0);
+                email = r.get(1);
+            });
+            JwtClaims claims;
+            claims.issuer = g_issuer;
+            claims.subject = userId;
+            claims.audience = clientId;
+            claims.expiresAt = std::chrono::system_clock::from_time_t(std::time(nullptr) + 3600);
+            claims.username = username;
+            claims.email = email;
+            claims.mfaVerified = mfaVerified;
+            std::istringstream ss(scope);
+            std::string item;
+            while (std::getline(ss, item, ' ')) {
+                if (!item.empty()) {
+                    claims.scopes.push_back(item);
+                }
             }
-        }
-        const std::string token = jwtSigner.sign(claims);
+            const std::string accessToken = jwtSigner.sign(claims);
 
-        json resp;
-        resp["access_token"] = token;
-        resp["token_type"] = "Bearer";
-        resp["expires_in"] = 3600;
-        resp["id_token"] = token;
-        res->set("Content-Type", "application/json").send(resp.dump());
+            // Mint and store a rotating refresh token; only its hash is kept.
+            const std::string refreshToken = generateRandomString(64);
+            std::string err;
+            g_db->exec("DELETE FROM refresh_token WHERE expires_at <= datetime('now')", {}, &err);
+            g_db->exec("INSERT INTO refresh_token(token_hash,user_id,client_id,scope,mfa_verified,expires_at)"
+                       " VALUES(?,?,?,?,?,datetime('now','+30 days'))",
+                       {sha256hex(refreshToken), userId, clientId, scope, mfaVerified ? "1" : "0"}, &err);
+
+            json resp;
+            resp["access_token"] = accessToken;
+            resp["token_type"] = "Bearer";
+            resp["expires_in"] = 3600;
+            resp["refresh_token"] = refreshToken;
+            resp["id_token"] = accessToken;
+            return resp.dump();
+        };
+
+        if (grantType == "authorization_code") {
+            const std::string code = p["code"], clientId = p["client_id"], codeVerifier = p["code_verifier"];
+            if (code.empty() || clientId.empty() || codeVerifier.empty()) {
+                res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_request\"}");
+                return;
+            }
+            struct CodeRow {
+                std::string userId, scope, challenge, method;
+                bool mfaVerified = false;
+                bool expired = false;
+            } cr;
+            bool found = false;
+            g_db->query("SELECT user_id,scope,code_challenge,code_challenge_method,mfa_verified,"
+                        " (expires_at <= datetime('now')) AS is_expired"
+                        " FROM auth_code WHERE code=? AND client_id=?",
+                        {code, clientId},
+                        [&](const SqliteDatabase::Row& r) {
+                            found = true;
+                            cr.userId = r.get(0);
+                            cr.scope = r.get(1);
+                            cr.challenge = r.get(2);
+                            cr.method = r.get(3);
+                            cr.mfaVerified = (r.get(4) == "1");
+                            cr.expired = (r.get(5) == "1");
+                        });
+            if (!found || cr.expired) {
+                res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_grant\"}");
+                return;
+            }
+            if (!verifyPkce(codeVerifier, cr.challenge, cr.method)) {
+                res->status(400)
+                    .set("Content-Type", "application/json")
+                    .send("{\"error\":\"invalid_grant\","
+                          "\"error_description\":\"PKCE verification failed\"}");
+                return;
+            }
+            g_db->exec("DELETE FROM auth_code WHERE code=?", {code});  // single-use
+            res->set("Content-Type", "application/json").send(issueTokens(cr.userId, clientId, cr.scope, cr.mfaVerified));
+            return;
+        }
+
+        if (grantType == "refresh_token") {
+            const std::string refreshToken = p["refresh_token"], clientId = p["client_id"];
+            if (refreshToken.empty()) {
+                res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_request\"}");
+                return;
+            }
+            const std::string hash = sha256hex(refreshToken);
+            struct RT {
+                std::string userId, scope, clientId;
+                bool mfaVerified = false, used = false, expired = false;
+            } rt;
+            bool found = false;
+            g_db->query("SELECT user_id,scope,client_id,mfa_verified,used,(expires_at <= datetime('now'))"
+                        " FROM refresh_token WHERE token_hash=?",
+                        {hash},
+                        [&](const SqliteDatabase::Row& r) {
+                            found = true;
+                            rt.userId = r.get(0);
+                            rt.scope = r.get(1);
+                            rt.clientId = r.get(2);
+                            rt.mfaVerified = (r.get(3) == "1");
+                            rt.used = (r.get(4) == "1");
+                            rt.expired = (r.get(5) == "1");
+                        });
+            if (!found) {
+                res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_grant\"}");
+                return;
+            }
+            if (rt.used) {
+                // Re-presentation of an already-rotated token signals theft;
+                // revoke every refresh token in the family as a safe response.
+                g_db->exec("DELETE FROM refresh_token WHERE user_id=?", {rt.userId});
+                LOG(ERROR) << "[Refresh] Reuse detected for user " << rt.userId << "; all refresh tokens revoked";
+                res->status(400)
+                    .set("Content-Type", "application/json")
+                    .send("{\"error\":\"invalid_grant\",\"error_description\":\"refresh token reuse detected\"}");
+                return;
+            }
+            if (rt.expired) {
+                g_db->exec("DELETE FROM refresh_token WHERE token_hash=?", {hash});
+                res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_grant\"}");
+                return;
+            }
+            if (!clientId.empty() && clientId != rt.clientId) {
+                res->status(400).set("Content-Type", "application/json").send("{\"error\":\"invalid_grant\"}");
+                return;
+            }
+            // Rotate: mark the presented token used (kept until expiry for reuse
+            // detection), then issue a fresh access and refresh token pair.
+            std::string err;
+            g_db->exec("UPDATE refresh_token SET used=1 WHERE token_hash=?", {hash}, &err);
+            res->set("Content-Type", "application/json").send(issueTokens(rt.userId, rt.clientId, rt.scope, rt.mfaVerified));
+            return;
+        }
+
+        res->status(400).set("Content-Type", "application/json").send("{\"error\":\"unsupported_grant_type\"}");
+    });
+
+    // ── GET /.well-known/jwks.json ────────────────────────────────────────────
+    // Publishes the RS256 public key as a JWK Set so relying parties can fetch
+    // and rotate the verification key automatically instead of receiving the
+    // public key out of band.
+    app.get("/.well-known/jwks.json", [&jwksDocument] APPLICATION(req, res) {
+        res->set("Content-Type", "application/json")
+            .set("Cache-Control", "public,max-age=3600")
+            .set("Access-Control-Allow-Origin", "*")
+            .send(jwksDocument);
+    });
+
+    // ── GET /.well-known/openid-configuration ─────────────────────────────────
+    // OpenID Connect discovery document, so standard OAuth 2.0 / OIDC clients can
+    // configure themselves from the issuer URL alone.
+    app.get("/.well-known/openid-configuration", [] APPLICATION(req, res) {
+        json d;
+        d["issuer"] = g_issuer;
+        d["authorization_endpoint"] = g_idpBaseUrl + "/oauth2/authorize";
+        d["token_endpoint"] = g_idpBaseUrl + "/oauth2/token";
+        d["jwks_uri"] = g_idpBaseUrl + "/.well-known/jwks.json";
+        d["response_types_supported"] = json::array({"code"});
+        d["grant_types_supported"] = json::array({"authorization_code", "refresh_token"});
+        d["subject_types_supported"] = json::array({"public"});
+        d["id_token_signing_alg_values_supported"] = json::array({"RS256"});
+        d["token_endpoint_auth_methods_supported"] = json::array({"none"});
+        d["code_challenge_methods_supported"] = json::array({"S256"});
+        d["scopes_supported"] = json::array({"openid", "profile", "email"});
+        d["claims_supported"] = json::array({"sub", "iss", "aud", "exp", "iat", "username", "email", "mfa_verified"});
+        res->set("Content-Type", "application/json")
+            .set("Cache-Control", "public,max-age=3600")
+            .set("Access-Control-Allow-Origin", "*")
+            .send(d.dump());
     });
 
     // ── GET /health ───────────────────────────────────────────────────────────
@@ -2216,8 +2736,12 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            // Create linked account
-            std::string hash = hashPasswordPbkdf2(generateRandomString(32));
+            // Create linked account. Federated (e.g. Google) accounts have no
+            // local password; a sentinel hash marks them as passwordless so the
+            // account page can offer "set a password" instead of "change", and
+            // so a password login attempt simply fails (the sentinel is not a
+            // valid PBKDF2/SHA-256 hash).
+            std::string hash = "$federated$" + providerId + "$";
             std::string err;
             if (!g_db->exec("INSERT INTO user(username,email,password_hash,password_salt) VALUES(?,?,?,'')",
                        {finalUsername, targetEmail, hash}, &err)) {
