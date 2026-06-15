@@ -595,9 +595,9 @@ footer { text-align: center; padding: 24px; font-size: 0.85rem; color: var(--tex
     .burger-menu { display: block; }
     .header-nav { display: none; flex-direction: column; gap: 12px; margin-top: 16px; align-items: stretch; width: 100%; border-top: 1px solid var(--header-border); padding-top: 16px; }
     .header-nav.open { display: flex; }
-    .header-nav a, .header-nav form { width: 100%; text-align: left; }
-    .header-nav a, .header-nav .logout-btn { padding: 8px 0; font-size: 1rem; width: 100%; display: block; }
-    .theme-switch { justify-content: flex-start; width: 100%; padding: 8px 0; }
+    .header-nav a, .header-nav form { width: 100%; text-align: right; }
+    .header-nav a, .header-nav .logout-btn { padding: 8px 0; font-size: 1rem; width: 100%; display: block; text-align: right; }
+    .theme-switch { justify-content: flex-end; width: 100%; padding: 8px 0; }
     .desktop-user { display: none !important; }
     .card { padding: 24px 20px; }
     .dashboard-grid { grid-template-columns: 1fr; }
