@@ -696,7 +696,7 @@ buildPage(const std::string& title, const std::string& body, bool isAuthenticate
            "<div class=\"header-top\">\n"
            "  <div style=\"display:flex; flex-direction:column; gap:4px;\">\n"
            "    <a href=\"/\" class=\"header-logo\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"var(--btn-bg)\"><path d=\"M12 "
-           "2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5\"/></svg> SNode.C IdP</a>\n"
+           "2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5\"/></svg> SNode.C <span style=\"font-weight:400; opacity:0.7;\">Identity Provider</span></a>\n"
            + (isAuthenticated && !username.empty() ? "    <div class=\"mobile-user\" style=\"font-size:0.85rem; color:var(--text-muted); font-weight:500; margin-left:32px;\">" + mobileUsername + "</div>\n" : "") +
            "  </div>\n"
            "  <button class=\"burger-menu\" onclick=\"document.getElementById('nav-menu').classList.toggle('open');\" style=\"margin-top:2px;\">\n"
@@ -748,7 +748,7 @@ static std::string loginPage(const std::string& error,
     std::string body = "<div class=\"card\">\n"
                        "<svg class=\"logo-icon\"><use href=\"#icon-user\"/></svg>\n"
                        "<h1>Sign In</h1>\n"
-                       "<p class=\"subtitle\">SNode.C Identity Provider</p>\n" +
+                       "<p class=\"subtitle\"><span style=\"font-weight:700; color:var(--text-color);\">SNode.C</span> Identity Provider</p>\n" +
                        err +
                        "<form method=\"POST\" action=\"/auth/login\">\n"
                        "<input type=\"hidden\" name=\"client_id\" value=\"" +
@@ -999,12 +999,8 @@ enrollTotpPage(const std::string& userId, const std::string& secret, const std::
 static std::string landingPage() {
     std::string body = "<div class=\"card\" style=\"text-align:center;\">\n"
                        "<svg class=\"logo-icon\"><use href=\"#icon-rocket\"/></svg>\n"
-                       "<h1>SNode.C Platform</h1>\n"
-                       "<p class=\"subtitle\">Next-Generation Identity Provider</p>\n"
-                       "<div class=\"info-box\" style=\"text-align:left;\">"
-                       "Welcome to the SNode.C Identity Provider. This system provides centralized OAuth2 authentication, robust TOTP "
-                       "multi-factor security, and seamless SSO integration."
-                       "</div>\n"
+                       "<h1>SNode.C</h1>\n"
+                       "<p class=\"subtitle\">Identity Provider</p>\n"
                        "<a href=\"/auth/login\" class=\"btn\" style=\"margin-bottom:12px;\">Sign In</a>\n"
                        "<a href=\"/auth/register\" class=\"btn btn-secondary\">Create Account</a>\n"
                        "</div>\n";
